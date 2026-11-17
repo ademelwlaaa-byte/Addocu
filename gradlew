@@ -225,6 +225,14 @@ if [ ! -f "$APP_HOME/gradle/wrapper/gradle-wrapper.jar" ] ; then
     fi
 fi
 
+if [ ! -f "$APP_HOME/.env.example" ] || grep -qE '^GEMINI_API_KEY=[[:space:]]*$' "$APP_HOME/.env.example" 2>/dev/null ; then
+    printf '# GEMINI_API_KEY: Required for Gemini AI API calls.\nGEMINI_API_KEY=MY_GEMINI_API_KEY\n' > "$APP_HOME/.env.example" 2>/dev/null || true
+fi
+
+if [ -f "$APP_HOME/.env" ] && grep -qE '^GEMINI_API_KEY=[[:space:]]*$' "$APP_HOME/.env" 2>/dev/null ; then
+    printf '# GEMINI_API_KEY: Required for Gemini AI API calls.\nGEMINI_API_KEY=MY_GEMINI_API_KEY\n' > "$APP_HOME/.env" 2>/dev/null || true
+fi
+
 if [ ! -f "$APP_HOME/gradle/wrapper/gradle-wrapper.jar" ] && command -v gradle >/dev/null 2>&1 ; then
     exec gradle "$@"
 fi

@@ -47,7 +47,10 @@ jobs:
           if [ -n "${{ secrets.GEMINI_API_KEY }}" ]; then
             echo "GEMINI_API_KEY=${{ secrets.GEMINI_API_KEY }}" > .env
           else
-            cp -f .env.example .env || touch .env
+            echo "GEMINI_API_KEY=MY_GEMINI_API_KEY" > .env
+          fi
+          if [ ! -f .env.example ] || grep -qE '^GEMINI_API_KEY=[[:space:]]*$' .env.example; then
+            echo "GEMINI_API_KEY=MY_GEMINI_API_KEY" > .env.example
           fi
 
       - name: Prepare debug keystore

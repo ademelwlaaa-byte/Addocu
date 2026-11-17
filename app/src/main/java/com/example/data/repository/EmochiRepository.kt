@@ -786,7 +786,8 @@ class EmochiRepository(
 
     private fun getBuildConfigKey(): String {
         return try {
-            BuildConfig.GEMINI_API_KEY.trim()
+            val key = BuildConfig.GEMINI_API_KEY.trim()
+            if (key == "MY_GEMINI_API_KEY") "" else key
         } catch (_: Throwable) {
             ""
         }
