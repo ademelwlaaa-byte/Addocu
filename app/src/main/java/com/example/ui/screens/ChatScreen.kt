@@ -243,7 +243,7 @@ fun formatNarrativeText(text: String): AnnotatedString {
 fun createFrostedWisteriaBackdropBitmap(context: android.content.Context): ImageBitmap {
     return try {
         val opts = android.graphics.BitmapFactory.Options().apply {
-            inSampleSize = 4
+            inSampleSize = 2
             inPreferredConfig = android.graphics.Bitmap.Config.ARGB_8888
         }
         val raw = android.graphics.BitmapFactory.decodeResource(
@@ -252,8 +252,8 @@ fun createFrostedWisteriaBackdropBitmap(context: android.content.Context): Image
             opts
         ) ?: return ImageBitmap(1, 1)
 
-        val w = 144
-        val h = ((raw.height.toFloat() / raw.width.toFloat().coerceAtLeast(1f)) * w).toInt().coerceIn(144, 340)
+        val w = 240
+        val h = ((raw.height.toFloat() / raw.width.toFloat().coerceAtLeast(1f)) * w).toInt().coerceIn(240, 560)
         val scaled = android.graphics.Bitmap.createScaledBitmap(raw, w, h, true)
         if (raw !== scaled) raw.recycle()
 
@@ -261,8 +261,8 @@ fun createFrostedWisteriaBackdropBitmap(context: android.content.Context): Image
         scaled.getPixels(pixels, 0, w, 0, 0, w, h)
         val tmp = IntArray(w * h)
 
-        // Two-pass separable box blur (radius 10 on 144px wide ~= 75px silky Gaussian frost on 1080p)
-        val radius = 10
+        // Two-pass separable box blur (radius 5 on 240px wide ~= 20dp crisp optical frosted glass)
+        val radius = 5
         val div = radius * 2 + 1
         repeat(2) {
             // Horizontal pass
@@ -312,15 +312,15 @@ fun createFrostedWisteriaBackdropBitmap(context: android.content.Context): Image
             }
         }
 
-        // Lift shadows gently toward dusty frosted-lavender so glass bubbles gleam softly instead of turning dark/muddy
+        // Preserve natural stained-glass light vs gothic cathedral depth with subtle cool-plum frost polish (no muddy grey wash)
         for (i in pixels.indices) {
             val px = pixels[i]
             val r = (px ushr 16) and 0xFF
             val g = (px ushr 8) and 0xFF
             val b = px and 0xFF
-            val nr = (r * 0.72f + 128f * 0.28f).toInt().coerceIn(0, 255)
-            val ng = (g * 0.72f + 98f * 0.28f).toInt().coerceIn(0, 255)
-            val nb = (b * 0.72f + 168f * 0.28f).toInt().coerceIn(0, 255)
+            val nr = (r * 0.94f + 16f).toInt().coerceIn(0, 255)
+            val ng = (g * 0.90f + 10f).toInt().coerceIn(0, 255)
+            val nb = (b * 0.97f + 22f).toInt().coerceIn(0, 255)
             pixels[i] = (0xFF shl 24) or (nr shl 16) or (ng shl 8) or nb
         }
 
@@ -333,21 +333,27 @@ fun createFrostedWisteriaBackdropBitmap(context: android.content.Context): Image
     }
 }
 
+private val LocalAetheriaRootPos = androidx.compose.runtime.compositionLocalOf { Offset.Zero }
+
 @Composable
 fun Modifier.aetheriaBackdropBlur(
     rootSize: androidx.compose.ui.unit.IntSize,
     blurredBitmap: ImageBitmap,
-    alpha: Float = 0.88f
+    alpha: Float = 0.94f
 ): Modifier {
-    var coordsInRoot by remember { mutableStateOf(Offset.Zero) }
+    val rootPos = LocalAetheriaRootPos.current
+    val coordsState = remember { mutableStateOf(Offset.Zero) }
     return this
         .onGloballyPositioned { layoutCoordinates ->
-            coordsInRoot = layoutCoordinates.positionInRoot()
+            coordsState.value = layoutCoordinates.positionInRoot()
         }
         .drawBehind {
             val imgW = blurredBitmap.width
             val imgH = blurredBitmap.height
             if (imgW > 1 && imgH > 1) {
+                val coords = coordsState.value
+                val relX = coords.x - rootPos.x
+                val relY = coords.y - rootPos.y
                 val rW = if (rootSize.width > 0) rootSize.width.toFloat() else size.width
                 val rH = if (rootSize.height > 0) rootSize.height.toFloat() else size.height
                 val scale = maxOf(rW / imgW.toFloat(), rH / imgH.toFloat())
@@ -358,12 +364,12 @@ fun Modifier.aetheriaBackdropBlur(
                 drawImage(
                     image = blurredBitmap,
                     dstOffset = androidx.compose.ui.unit.IntOffset(
-                        (rootLeft - coordsInRoot.x).toInt(),
-                        (rootTop - coordsInRoot.y).toInt()
+                        kotlin.math.round(rootLeft - relX).toInt(),
+                        kotlin.math.round(rootTop - relY).toInt()
                     ),
                     dstSize = androidx.compose.ui.unit.IntSize(
-                        scaledW.toInt().coerceAtLeast(1),
-                        scaledH.toInt().coerceAtLeast(1)
+                        kotlin.math.round(scaledW).toInt().coerceAtLeast(1),
+                        kotlin.math.round(scaledH).toInt().coerceAtLeast(1)
                     ),
                     alpha = alpha,
                     filterQuality = FilterQuality.High
@@ -372,13 +378,13 @@ fun Modifier.aetheriaBackdropBlur(
         }
 }
 
-// Stage 1 (BEFORE .clip): Outer floating dark-plum drop shadow + soft purple outer rim bloom + soft bottom flare bloom
+// Stage 1 (BEFORE .clip): Soft ambient dark-plum drop shadow + delicate translucent purple rim aura (never heavy wireframe outline)
 fun Modifier.morCamOuterGlow(
     cornerRadius: androidx.compose.ui.unit.Dp = 24.dp,
-    shadowAlpha: Float = 0.45f,
-    rimGlowAlpha: Float = 0.36f,
-    bottomFlareAlpha: Float = 0.72f,
-    flareColor: Color = Color(0xFFE9D5FF)
+    shadowAlpha: Float = 0.42f,
+    rimGlowAlpha: Float = 0.26f,
+    bottomFlareAlpha: Float = 0.45f,
+    flareColor: Color = Color(0xFFD8B4FE)
 ): Modifier = this.drawBehind {
     val cr = cornerRadius.toPx()
     drawIntoCanvas { canvas ->
@@ -387,13 +393,13 @@ fun Modifier.morCamOuterGlow(
             val shadowPaint = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply {
                 style = android.graphics.Paint.Style.FILL
                 color = android.graphics.Color.argb((shadowAlpha * 255).toInt().coerceIn(0, 255), 10, 4, 24)
-                maskFilter = android.graphics.BlurMaskFilter(14.dp.toPx(), android.graphics.BlurMaskFilter.Blur.NORMAL)
+                maskFilter = android.graphics.BlurMaskFilter(12.dp.toPx(), android.graphics.BlurMaskFilter.Blur.NORMAL)
             }
             native.drawRoundRect(
                 2.dp.toPx(),
-                6.dp.toPx(),
+                5.dp.toPx(),
                 size.width - 2.dp.toPx(),
-                size.height + 6.dp.toPx(),
+                size.height + 5.dp.toPx(),
                 cr,
                 cr,
                 shadowPaint
@@ -402,28 +408,28 @@ fun Modifier.morCamOuterGlow(
         if (rimGlowAlpha > 0f) {
             val rimPaint = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply {
                 style = android.graphics.Paint.Style.STROKE
-                strokeWidth = 2.6.dp.toPx()
-                color = android.graphics.Color.argb((rimGlowAlpha * 255).toInt().coerceIn(0, 255), 192, 132, 252)
-                maskFilter = android.graphics.BlurMaskFilter(4.5.dp.toPx(), android.graphics.BlurMaskFilter.Blur.NORMAL)
+                strokeWidth = 2.0.dp.toPx()
+                color = android.graphics.Color.argb((rimGlowAlpha * 255).toInt().coerceIn(0, 255), 168, 85, 247)
+                maskFilter = android.graphics.BlurMaskFilter(5.dp.toPx(), android.graphics.BlurMaskFilter.Blur.NORMAL)
             }
             native.drawRoundRect(0f, 0f, size.width, size.height, cr, cr, rimPaint)
         }
         if (bottomFlareAlpha > 0f) {
             val flarePaint = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply {
                 style = android.graphics.Paint.Style.STROKE
-                strokeWidth = 4.5.dp.toPx()
+                strokeWidth = 2.8.dp.toPx()
                 color = android.graphics.Color.argb(
-                    (bottomFlareAlpha * 200).toInt().coerceIn(0, 255),
+                    (bottomFlareAlpha * 170).toInt().coerceIn(0, 255),
                     (flareColor.red * 255).toInt(),
                     (flareColor.green * 255).toInt(),
                     (flareColor.blue * 255).toInt()
                 )
-                maskFilter = android.graphics.BlurMaskFilter(5.5.dp.toPx(), android.graphics.BlurMaskFilter.Blur.NORMAL)
+                maskFilter = android.graphics.BlurMaskFilter(4.5.dp.toPx(), android.graphics.BlurMaskFilter.Blur.NORMAL)
             }
             native.drawLine(
-                size.width * 0.22f,
+                size.width * 0.24f,
                 size.height,
-                size.width * 0.78f,
+                size.width * 0.76f,
                 size.height,
                 flarePaint
             )
@@ -431,11 +437,11 @@ fun Modifier.morCamOuterGlow(
     }
 }
 
-// Stage 2 (AFTER .background & .border): Renders crisp specular top glass sheen + bright bottom-border light reflection ON TOP of glass fill!
+// Stage 2 (AFTER .background & .border): Razor-crisp beveled glass specular reflections along top & bottom edges
 fun Modifier.morCamTopAndBottomSpecular(
     cornerRadius: androidx.compose.ui.unit.Dp = 24.dp,
-    topSheenAlpha: Float = 0.26f,
-    bottomFlareAlpha: Float = 0.92f,
+    topSheenAlpha: Float = 0.24f,
+    bottomFlareAlpha: Float = 0.78f,
     flareColor: Color = Color(0xFFF3E8FF)
 ): Modifier = this.drawWithContent {
     drawContent()
@@ -445,30 +451,50 @@ fun Modifier.morCamTopAndBottomSpecular(
             brush = Brush.horizontalGradient(
                 listOf(
                     Color.Transparent,
+                    Color.White.copy(alpha = topSheenAlpha * 0.75f),
                     Color.White.copy(alpha = topSheenAlpha),
-                    Color.White.copy(alpha = topSheenAlpha * 0.65f),
+                    Color.White.copy(alpha = topSheenAlpha * 0.75f),
                     Color.Transparent
                 ),
                 startX = inset * 0.65f,
                 endX = size.width - inset * 0.65f
             ),
-            start = Offset(inset * 0.65f, 0.9.dp.toPx()),
-            end = Offset(size.width - inset * 0.65f, 0.9.dp.toPx()),
-            strokeWidth = 1.dp.toPx(),
+            start = Offset(inset * 0.65f, 0.75.dp.toPx()),
+            end = Offset(size.width - inset * 0.65f, 0.75.dp.toPx()),
+            strokeWidth = 0.9.dp.toPx(),
             cap = androidx.compose.ui.graphics.StrokeCap.Round
         )
     }
     if (bottomFlareAlpha > 0f) {
-        val sx = size.width * 0.14f
-        val ex = size.width * 0.86f
-        val y = size.height - 0.8.dp.toPx()
+        val sx = size.width * 0.18f
+        val ex = size.width * 0.82f
+        val y = size.height - 0.65.dp.toPx()
+        // Soft inner edge bloom
         drawLine(
             brush = Brush.horizontalGradient(
                 colors = listOf(
                     Color.Transparent,
-                    flareColor.copy(alpha = bottomFlareAlpha * 0.65f),
+                    flareColor.copy(alpha = bottomFlareAlpha * 0.22f),
+                    Color.White.copy(alpha = bottomFlareAlpha * 0.34f),
+                    flareColor.copy(alpha = bottomFlareAlpha * 0.22f),
+                    Color.Transparent
+                ),
+                startX = sx,
+                endX = ex
+            ),
+            start = Offset(sx, y - 0.8.dp.toPx()),
+            end = Offset(ex, y - 0.8.dp.toPx()),
+            strokeWidth = 2.6.dp.toPx(),
+            cap = androidx.compose.ui.graphics.StrokeCap.Round
+        )
+        // Razor-crisp bright rim highlight
+        drawLine(
+            brush = Brush.horizontalGradient(
+                colors = listOf(
+                    Color.Transparent,
+                    flareColor.copy(alpha = bottomFlareAlpha * 0.55f),
                     Color.White.copy(alpha = bottomFlareAlpha),
-                    flareColor.copy(alpha = bottomFlareAlpha * 0.65f),
+                    flareColor.copy(alpha = bottomFlareAlpha * 0.55f),
                     Color.Transparent
                 ),
                 startX = sx,
@@ -476,25 +502,26 @@ fun Modifier.morCamTopAndBottomSpecular(
             ),
             start = Offset(sx, y),
             end = Offset(ex, y),
-            strokeWidth = 1.75.dp.toPx(),
+            strokeWidth = 1.1.dp.toPx(),
             cap = androidx.compose.ui.graphics.StrokeCap.Round
         )
     }
 }
 
-// 1:1 Reference Cosmic Nebula 'A' Avatar Medallion with Razor-Crisp Geometric Star Ring & Glowing Serif 'A'
+// 1:1 Reference Cosmic Nebula 'A' Avatar Medallion with Radiant Lens Flares, Inner Mini Diamonds & Metallic Serif Letter
 @Composable
 fun AidenMagicSigilAvatar(
     totalSize: androidx.compose.ui.unit.Dp,
     contentDescription: String? = null,
+    initial: String = "A",
     modifier: Modifier = Modifier
 ) {
     Box(
         modifier = modifier.size(totalSize),
         contentAlignment = Alignment.Center
     ) {
-        val coreSize = totalSize * 0.82f
-        val ringRFraction = 0.41f
+        val coreSize = totalSize * 0.84f
+        val ringRFraction = 0.415f
 
         // Crisp circular cosmic nebula core
         Box(
@@ -504,64 +531,91 @@ fun AidenMagicSigilAvatar(
                 .background(
                     Brush.radialGradient(
                         colors = listOf(
-                            Color(0xFF4B1E78),
-                            Color(0xFF281046),
-                            Color(0xFF140729)
+                            Color(0xFF42186E),
+                            Color(0xFF200B3D),
+                            Color(0xFF0E041F)
                         )
                     )
                 ),
             contentAlignment = Alignment.Center
         ) {
-            // Subtle nebula sparkles & highlights inside the orb
+            // Nebula wisps, stardust & 3/9 o'clock 4-point mini diamonds matching img_chat_aiden_sigil_avatar
             Canvas(modifier = Modifier.fillMaxSize()) {
                 val w = size.width
                 val h = size.height
                 drawCircle(
                     brush = Brush.radialGradient(
-                        colors = listOf(Color(0x88C084FC), Color.Transparent),
-                        center = Offset(w * 0.72f, h * 0.76f),
-                        radius = w * 0.36f
+                        colors = listOf(Color(0x99C084FC), Color.Transparent),
+                        center = Offset(w * 0.74f, h * 0.78f),
+                        radius = w * 0.38f
                     ),
-                    radius = w * 0.36f,
-                    center = Offset(w * 0.72f, h * 0.76f)
+                    radius = w * 0.38f,
+                    center = Offset(w * 0.74f, h * 0.78f)
                 )
                 drawCircle(
                     brush = Brush.radialGradient(
-                        colors = listOf(Color(0x66A855F7), Color.Transparent),
-                        center = Offset(w * 0.28f, h * 0.25f),
-                        radius = w * 0.32f
+                        colors = listOf(Color(0x77A855F7), Color.Transparent),
+                        center = Offset(w * 0.24f, h * 0.24f),
+                        radius = w * 0.34f
                     ),
-                    radius = w * 0.32f,
-                    center = Offset(w * 0.28f, h * 0.25f)
+                    radius = w * 0.34f,
+                    center = Offset(w * 0.24f, h * 0.24f)
                 )
+                // Mini 4-point stars at 9 o'clock and 3 o'clock inside the ring
+                val miniStarCenters = listOf(
+                    Offset(w * 0.16f, h * 0.50f),
+                    Offset(w * 0.84f, h * 0.50f)
+                )
+                val starR = w * 0.068f
+                val starW = w * 0.018f
+                miniStarCenters.forEach { c ->
+                    val miniPath = Path().apply {
+                        moveTo(c.x, c.y - starR)
+                        lineTo(c.x + starW, c.y - starW)
+                        lineTo(c.x + starR, c.y)
+                        lineTo(c.x + starW, c.y + starW)
+                        lineTo(c.x, c.y + starR)
+                        lineTo(c.x - starW, c.y + starW)
+                        lineTo(c.x - starR, c.y)
+                        lineTo(c.x - starW, c.y - starW)
+                        close()
+                    }
+                    drawPath(miniPath, Color(0xFFE9D5FF))
+                }
                 val specks = listOf(
-                    Offset(0.24f, 0.32f) to 1.2f,
-                    Offset(0.76f, 0.26f) to 1.0f,
-                    Offset(0.22f, 0.68f) to 0.9f,
-                    Offset(0.74f, 0.74f) to 1.5f,
-                    Offset(0.50f, 0.19f) to 1.0f,
-                    Offset(0.81f, 0.52f) to 0.9f
+                    Offset(0.24f, 0.30f) to 1.1f,
+                    Offset(0.76f, 0.25f) to 1.0f,
+                    Offset(0.22f, 0.70f) to 0.9f,
+                    Offset(0.75f, 0.75f) to 1.4f,
+                    Offset(0.50f, 0.17f) to 0.9f,
+                    Offset(0.50f, 0.84f) to 1.0f
                 )
                 specks.forEach { (pt, rad) ->
                     drawCircle(
-                        color = Color(0xFFF3E8FF).copy(alpha = 0.85f),
+                        color = Color(0xFFF3E8FF).copy(alpha = 0.88f),
                         radius = rad.dp.toPx(),
                         center = Offset(w * pt.x, h * pt.y)
                     )
                 }
             }
 
-            // Crisp luminous serif 'A' exactly matching the reference medallion
-            val aFontSize = (totalSize.value * 0.43f).sp
+            // Crisp metallic silver-lilac serif initial matching reference medallion
+            val aFontSize = (totalSize.value * 0.44f).sp
             Text(
-                text = "A",
-                color = Color(0xFFF8F2FF),
+                text = initial.ifBlank { "A" }.take(1).uppercase(),
                 fontSize = aFontSize,
                 fontFamily = LiterarySerifFontFamily,
                 fontWeight = FontWeight.Normal,
                 style = TextStyle(
+                    brush = Brush.verticalGradient(
+                        colors = listOf(
+                            Color.White,
+                            Color(0xFFF3E8FF),
+                            Color(0xFFD8B4FE)
+                        )
+                    ),
                     shadow = Shadow(
-                        color = Color(0xFFD8B4FE),
+                        color = Color(0xCCA855F7),
                         offset = Offset(0f, 0f),
                         blurRadius = 10f
                     )
@@ -569,31 +623,31 @@ fun AidenMagicSigilAvatar(
             )
         }
 
-        // Outer neon purple-pink aura + crisp inner circle + delicate outer geometric arc + 8 sleek needle-sharp star points
+        // Outer neon purple-pink aura + crisp inner circle + diagonal lens-flare glints + delicate outer celestial arc + 4/8 needle points
         Canvas(modifier = Modifier.fillMaxSize()) {
             val cx = size.width / 2f
             val cy = size.height / 2f
             val ringR = size.minDimension * ringRFraction
             val outerTipCard = size.minDimension * 0.495f
-            val outerTipDiag = size.minDimension * 0.462f
+            val outerTipDiag = size.minDimension * 0.456f
 
             drawIntoCanvas { canvas ->
                 val native = canvas.nativeCanvas
                 val auraPaint = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply {
                     style = android.graphics.Paint.Style.STROKE
-                    strokeWidth = 3.2.dp.toPx()
-                    color = android.graphics.Color.argb(190, 192, 132, 252)
-                    maskFilter = android.graphics.BlurMaskFilter(5.5.dp.toPx(), android.graphics.BlurMaskFilter.Blur.NORMAL)
+                    strokeWidth = 3.0.dp.toPx()
+                    color = android.graphics.Color.argb(185, 192, 132, 252)
+                    maskFilter = android.graphics.BlurMaskFilter(5.dp.toPx(), android.graphics.BlurMaskFilter.Blur.NORMAL)
                 }
                 native.drawCircle(cx, cy, ringR, auraPaint)
             }
 
             // Faint outer celestial arc circle
             drawCircle(
-                color = Color(0x80A855F7),
+                color = Color(0x709333EA),
                 radius = ringR * 1.09f,
                 center = Offset(cx, cy),
-                style = Stroke(width = 0.75.dp.toPx())
+                style = Stroke(width = 0.7.dp.toPx())
             )
 
             // Crisp luminous inner circle border
@@ -612,12 +666,30 @@ fun AidenMagicSigilAvatar(
                 style = Stroke(width = 1.25.dp.toPx())
             )
 
+            // Radiant lens-flare bursts on the ring (at ~1:30, ~5:00, ~10:30) just like img_chat_aiden_sigil_avatar
+            val flareAngles = listOf(-42.0, 52.0, -135.0)
+            flareAngles.forEachIndexed { idx, deg ->
+                val rad = Math.toRadians(deg)
+                val fx = cx + (Math.cos(rad) * ringR).toFloat()
+                val fy = cy + (Math.sin(rad) * ringR).toFloat()
+                val fR = if (idx < 2) size.minDimension * 0.14f else size.minDimension * 0.10f
+                drawCircle(
+                    brush = Brush.radialGradient(
+                        colors = listOf(Color(0xEEFFFFFF), Color(0xAAE879F9), Color(0x44A855F7), Color.Transparent),
+                        center = Offset(fx, fy),
+                        radius = fR
+                    ),
+                    radius = fR,
+                    center = Offset(fx, fy)
+                )
+            }
+
             // 8 sleek, delicate geometric compass/star needle points protruding slightly outside the circle
             for (i in 0 until 8) {
                 val angleDeg = i * 45f
                 val isCardinal = i % 2 == 0
                 val tipR = if (isCardinal) outerTipCard else outerTipDiag
-                val baseHalfW = if (isCardinal) size.minDimension * 0.028f else size.minDimension * 0.020f
+                val baseHalfW = if (isCardinal) size.minDimension * 0.028f else size.minDimension * 0.018f
                 rotate(degrees = angleDeg, pivot = Offset(cx, cy)) {
                     val spikePath = Path().apply {
                         moveTo(cx, cy - tipR)
@@ -632,7 +704,7 @@ fun AidenMagicSigilAvatar(
                             colors = if (isCardinal) {
                                 listOf(Color.White, Color(0xFFE9D5FF), Color(0xFFA855F7))
                             } else {
-                                listOf(Color(0xFFF3E8FF), Color(0xFFC084FC), Color(0xFF7C3AED))
+                                listOf(Color(0xFFE9D5FF), Color(0xFFC084FC), Color(0xFF7C3AED))
                             },
                             startY = cy - tipR,
                             endY = cy - ringR * 0.89f
@@ -731,7 +803,16 @@ fun TopBorderGlowingStar(modifier: Modifier = Modifier) {
             cap = androidx.compose.ui.graphics.StrokeCap.Round
         )
 
-        // Subtle 4-point star aura (strictly star-shaped, NOT a circular blurry blob)
+        // Subtle 4-point star aura + tiny pinpoint glow right behind the star core
+        drawCircle(
+            brush = Brush.radialGradient(
+                listOf(Color(0x55FFFFFF), Color(0x38D8B4FE), Color.Transparent),
+                center = Offset(cx, cy),
+                radius = 7.dp.toPx()
+            ),
+            radius = 7.dp.toPx(),
+            center = Offset(cx, cy)
+        )
         val vGlow = 12.dp.toPx()
         val hGlow = 11.dp.toPx()
         val wGlow = 2.4.dp.toPx()
@@ -830,17 +911,17 @@ fun GlassPillIconBadge(type: String, modifier: Modifier = Modifier) {
 
         when (type) {
             "copy" -> {
-                // Dark circular badge (w-7 h-7 rounded-full bg-[#140826]/90 border border-purple-400/30)
+                // Translucent dark circular badge matching img_chat_ref_pills_row
                 drawCircle(
-                    color = Color(0xE6140826),
+                    color = Color(0x881A0B34),
                     radius = r,
                     center = Offset(cx, cy)
                 )
                 drawCircle(
-                    color = Color(0x4DC084FC),
+                    color = Color(0x38D8B4FE),
                     radius = r - 0.5.dp.toPx(),
                     center = Offset(cx, cy),
-                    style = Stroke(width = 0.85.dp.toPx())
+                    style = Stroke(width = 0.75.dp.toPx())
                 )
                 val bw = size.width * 0.42f
                 val bh = size.height * 0.48f
@@ -857,7 +938,7 @@ fun GlassPillIconBadge(type: String, modifier: Modifier = Modifier) {
                 val cw = bw * 0.54f
                 val ch = 2.6.dp.toPx()
                 drawRoundRect(
-                    color = Color(0xFF140826),
+                    color = Color(0xFF1A0B34),
                     topLeft = Offset(cx - cw / 2f, top - 0.6.dp.toPx()),
                     size = androidx.compose.ui.geometry.Size(cw, ch + 1.2.dp.toPx()),
                     cornerRadius = androidx.compose.ui.geometry.CornerRadius(1.2.dp.toPx(), 1.2.dp.toPx())
@@ -881,17 +962,17 @@ fun GlassPillIconBadge(type: String, modifier: Modifier = Modifier) {
                 }
             }
             "continue" -> {
-                // Dark circular outer recess + bright amber/orange rounded-md square badge (from-amber-400 to-orange-500 shadow-[0_0_10px_rgba(245,158,11,0.65)])
+                // Dark circular outer recess + bright amber/orange rounded-md square badge
                 drawCircle(
-                    color = Color(0xD9140826),
+                    color = Color(0x881A0B34),
                     radius = r,
                     center = Offset(cx, cy)
                 )
                 drawCircle(
-                    color = Color(0x40C084FC),
+                    color = Color(0x38D8B4FE),
                     radius = r - 0.5.dp.toPx(),
                     center = Offset(cx, cy),
-                    style = Stroke(width = 0.8.dp.toPx())
+                    style = Stroke(width = 0.75.dp.toPx())
                 )
                 val sq = size.minDimension * 0.64f
                 val left = cx - sq / 2f
@@ -931,15 +1012,15 @@ fun GlassPillIconBadge(type: String, modifier: Modifier = Modifier) {
             "more" -> {
                 // Dark circular badge with 3 horizontal white dots (•••)
                 drawCircle(
-                    color = Color(0xE6140826),
+                    color = Color(0x881A0B34),
                     radius = r,
                     center = Offset(cx, cy)
                 )
                 drawCircle(
-                    color = Color(0x4DC084FC),
+                    color = Color(0x38D8B4FE),
                     radius = r - 0.5.dp.toPx(),
                     center = Offset(cx, cy),
-                    style = Stroke(width = 0.85.dp.toPx())
+                    style = Stroke(width = 0.75.dp.toPx())
                 )
                 val dotR = 1.75.dp.toPx()
                 val spacing = 4.6.dp.toPx()
@@ -955,7 +1036,7 @@ fun GlassPillIconBadge(type: String, modifier: Modifier = Modifier) {
     }
 }
 
-// 100% Vector-Sharp 3D Circular Icon Well (w-9 h-9 rounded-full bg-[#120826] border border-purple-400/50) for the 3 Bottom Quick-Action Cards
+// 100% Vector-Sharp 3D Circular Icon Well for the 3 Bottom Quick-Action Cards matching img_chat_ref_quick_cards
 @Composable
 fun QuickActionIconWell(type: String, modifier: Modifier = Modifier) {
     Canvas(modifier = modifier.size(34.dp)) {
@@ -963,17 +1044,17 @@ fun QuickActionIconWell(type: String, modifier: Modifier = Modifier) {
         val cy = size.height / 2f
         val r = size.minDimension / 2f
 
-        // Dark #120826 circular well with border-purple-400/50
+        // Translucent deep plum circular well with subtle lavender rim
         drawCircle(
-            color = Color(0xFF120826),
+            color = Color(0xA61D0D3B),
             radius = r,
             center = Offset(cx, cy)
         )
         drawCircle(
-            color = Color(0x80C084FC),
+            color = Color(0x4AC084FC),
             radius = r - 0.5.dp.toPx(),
             center = Offset(cx, cy),
-            style = Stroke(width = 1.dp.toPx())
+            style = Stroke(width = 0.8.dp.toPx())
         )
 
         when (type) {
@@ -1316,14 +1397,17 @@ fun ChatScreen(
         )
     } else {
     var rootSize by remember { mutableStateOf(androidx.compose.ui.unit.IntSize.Zero) }
+    var rootPosInRoot by remember { mutableStateOf(Offset.Zero) }
     val blurredBgBitmap = remember(context) { createFrostedWisteriaBackdropBitmap(context) }
     val headerTitle = displayName
     val validMessages = rawValidMessages
 
+    androidx.compose.runtime.CompositionLocalProvider(LocalAetheriaRootPos provides rootPosInRoot) {
     Box(
         modifier = Modifier
             .fillMaxSize()
             .onSizeChanged { rootSize = it }
+            .onGloballyPositioned { rootPosInRoot = it.positionInRoot() }
     ) {
         val isImeVisible = WindowInsets.isImeVisible
 
@@ -1345,380 +1429,400 @@ fun ChatScreen(
             containerColor = Color.Transparent,
             contentWindowInsets = WindowInsets(0, 0, 0, 0),
             topBar = {
-                // ── SECTION 2: ÜST BAR (HEADER) — 1:1 REFERENCE SLICE WITH DYNAMIC BOT NAME & INITIAL ──
-                Column(
+                // ── SECTION 2: ÜST BAR (HEADER) — TRUE TRANSLUCENT GLASS & SMOOTH FEATHERED TRANSITION ──
+                Box(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .statusBarsPadding()
-                        .padding(top = 2.dp, bottom = 0.dp)
-                        .animateContentSize(animationSpec = tween(220, easing = FastOutSlowInEasing)),
-                    horizontalAlignment = Alignment.CenterHorizontally
+                        .background(
+                            Brush.verticalGradient(
+                                colors = listOf(
+                                    Color(0x280D041E),
+                                    Color(0x0E100522),
+                                    Color.Transparent
+                                )
+                            )
+                        )
                 ) {
-                    BoxWithConstraints(
+                    Column(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .aspectRatio(841f / 136f)
-                    ) {
-                        val w = maxWidth
-                        val h = maxHeight
-
-                        val headerRes = if (avatarInitial == "A") {
-                            com.example.R.drawable.img_chat_ref_header_notitle
-                        } else {
-                            com.example.R.drawable.img_chat_ref_header_noletter
-                        }
-
-                        androidx.compose.foundation.Image(
-                            painter = androidx.compose.ui.res.painterResource(id = headerRes),
-                            contentDescription = headerTitle,
-                            contentScale = androidx.compose.ui.layout.ContentScale.FillBounds,
-                            modifier = Modifier.fillMaxSize()
-                        )
-
-                        // Dynamic initial letter inside the left cosmic sigil ring when initial != "A"
-                        if (avatarInitial != "A") {
-                            Box(
-                                modifier = Modifier
-                                    .offset(x = w * 0.165f, y = h * 0.18f)
-                                    .size(width = w * 0.100f, height = h * 0.64f),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                Text(
-                                    text = avatarInitial,
-                                    color = Color.White,
-                                    fontSize = 24.sp,
-                                    fontWeight = FontWeight.Normal,
-                                    fontFamily = LiterarySerifFontFamily,
-                                    style = TextStyle(
-                                        shadow = Shadow(
-                                            color = Color(0xFFD8B4FE),
-                                            offset = Offset(0f, 0f),
-                                            blurRadius = 12f
-                                        )
-                                    )
-                                )
-                            }
-                        }
-
-                        // Dynamic Bot / Universe Title in Literary Serif
-                        Box(
-                            modifier = Modifier
-                                .offset(x = w * 0.265f, y = h * 0.14f)
-                                .size(width = w * 0.475f, height = h * 0.42f),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.Center
-                            ) {
-                                Text(
-                                    text = headerTitle,
-                                    color = Color(0xFFFBF8FF),
-                                    fontSize = 17.sp,
-                                    fontWeight = FontWeight.Normal,
-                                    fontFamily = LiterarySerifFontFamily,
-                                    letterSpacing = 0.15.sp,
-                                    maxLines = 1,
-                                    overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
-                                    textAlign = TextAlign.Center,
-                                    modifier = Modifier.weight(1f, fill = false),
-                                    style = TextStyle(
-                                        shadow = Shadow(
-                                            color = Color(0xAA120524),
-                                            offset = Offset(0f, 1.5f),
-                                            blurRadius = 6f
-                                        )
-                                    )
-                                )
-                            }
-                        }
-
-                        // 2.1 Sol Geri Butonu (<) Hit-Box (x = 2.0%..13.0%)
-                        Box(
-                            modifier = Modifier
-                                .offset(x = w * 0.020f, y = h * 0.08f)
-                                .size(width = w * 0.110f, height = h * 0.84f)
-                                .clip(CircleShape)
-                                .clickable(
-                                    interactionSource = remember { MutableInteractionSource() },
-                                    indication = null
-                                ) { onBack() }
-                        )
-
-                        // 2.2 Orta Avatar + Başlık Kapsülü Hit-Box (x = 13.5%..74.5%)
-                        Box(
-                            modifier = Modifier
-                                .offset(x = w * 0.135f, y = h * 0.04f)
-                                .size(width = w * 0.610f, height = h * 0.92f)
-                                .clip(RoundedCornerShape(50))
-                                .clickable(
-                                    interactionSource = remember { MutableInteractionSource() },
-                                    indication = null
-                                ) {
-                                    if (bot.mode == "personal") {
-                                        isStatsExpanded = !isStatsExpanded
-                                    } else {
-                                        showBotSettings = true
-                                    }
-                                }
-                        )
-
-                        // 2.3 Sağ Arama (🔍) Butonu Hit-Box (x = 75.0%..86.0%)
-                        Box(
-                            modifier = Modifier
-                                .offset(x = w * 0.750f, y = h * 0.08f)
-                                .size(width = w * 0.110f, height = h * 0.84f)
-                                .clip(CircleShape)
-                                .clickable(
-                                    interactionSource = remember { MutableInteractionSource() },
-                                    indication = null
-                                ) {
-                                    showSearchBar = !showSearchBar
-                                    if (!showSearchBar) {
-                                        localSearchQuery = ""
-                                        viewModel.clearSearch()
-                                    }
-                                }
-                        )
-
-                        // 2.4 Sağ Ayarlar (⚙️) Butonu Hit-Box (x = 87.0%..98.0%)
-                        Box(
-                            modifier = Modifier
-                                .offset(x = w * 0.870f, y = h * 0.08f)
-                                .size(width = w * 0.110f, height = h * 0.84f)
-                                .clip(CircleShape)
-                                .clickable(
-                                    interactionSource = remember { MutableInteractionSource() },
-                                    indication = null
-                                ) { showBotSettings = true }
-                                .testTag("bot_settings_button")
-                        )
-                    }
-
-                    // Search bar (slide-in)
-                    AnimatedVisibility(
-                        visible = showSearchBar,
-                        enter = slideInVertically(tween(220, easing = FastOutSlowInEasing)) { -it } + fadeIn(tween(220)),
-                        exit = slideOutVertically(tween(180)) { -it } + fadeOut(tween(180))
+                            .statusBarsPadding()
+                            .padding(top = 6.dp, bottom = 12.dp)
+                            .animateContentSize(animationSpec = tween(220, easing = FastOutSlowInEasing)),
+                        horizontalAlignment = Alignment.CenterHorizontally
                     ) {
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .padding(horizontal = 14.dp, vertical = 6.dp),
+                                .padding(horizontal = 12.dp),
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
+                            // 2.1 Sol Geri Butonu (<) — Translucent Frosted Glass Circle
+                            Box(
+                                modifier = Modifier
+                                    .size(43.dp)
+                                    .morCamOuterGlow(cornerRadius = 22.dp, shadowAlpha = 0.34f, rimGlowAlpha = 0.24f, bottomFlareAlpha = 0.42f)
+                                    .clip(CircleShape)
+                                    .aetheriaBackdropBlur(rootSize, blurredBgBitmap, alpha = 0.92f)
+                                    .background(
+                                        Brush.verticalGradient(
+                                            colors = listOf(
+                                                Color(0x52301658),
+                                                Color(0x6E15082A)
+                                            )
+                                        )
+                                    )
+                                    .border(
+                                        BorderStroke(
+                                            0.85.dp,
+                                            Brush.linearGradient(
+                                                listOf(Color(0xBCE9D5FF), Color(0x559333EA), Color(0xCCD8B4FE))
+                                            )
+                                        ),
+                                        CircleShape
+                                    )
+                                    .morCamTopAndBottomSpecular(cornerRadius = 22.dp, topSheenAlpha = 0.24f, bottomFlareAlpha = 0.78f)
+                                    .clickable(
+                                        interactionSource = remember { MutableInteractionSource() },
+                                        indication = null
+                                    ) { onBack() },
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Canvas(modifier = Modifier.size(16.dp)) {
+                                    val p = Path().apply {
+                                        moveTo(size.width * 0.66f, size.height * 0.16f)
+                                        lineTo(size.width * 0.28f, size.height * 0.50f)
+                                        lineTo(size.width * 0.66f, size.height * 0.84f)
+                                    }
+                                    drawPath(
+                                        path = p,
+                                        color = Color(0xFFFBF8FF),
+                                        style = Stroke(
+                                            width = 2.1.dp.toPx(),
+                                            cap = androidx.compose.ui.graphics.StrokeCap.Round,
+                                            join = androidx.compose.ui.graphics.StrokeJoin.Round
+                                        )
+                                    )
+                                }
+                            }
+
+                            // 2.2 Orta Avatar + Başlık Cam Kapsülü (Sleek Smoky Banner matching img_chat_ref_header_notitle)
                             Box(
                                 modifier = Modifier
                                     .weight(1f)
-                                    .clip(RoundedCornerShape(14.dp))
-                                    .background(Color(0xDD140D2E))
-                                    .border(1.dp, Brush.linearGradient(listOf(Color(0xFF7C3AED), Color(0xFF4C1D95))), RoundedCornerShape(14.dp))
-                                    .padding(horizontal = 14.dp, vertical = 10.dp)
-                            ) {
-                                if (localSearchQuery.isEmpty()) {
-                                    Text("Mesajlarda ara...", color = Color(0x60CDA8FF), fontSize = 13.sp, fontFamily = LiterarySerifFontFamily)
-                                }
-                                androidx.compose.foundation.text.BasicTextField(
-                                    value = localSearchQuery,
-                                    onValueChange = { q ->
-                                        localSearchQuery = q
-                                        viewModel.setSearchQuery(q.ifBlank { null })
+                                    .height(56.dp)
+                                    .clickable(
+                                        interactionSource = remember { MutableInteractionSource() },
+                                        indication = null
+                                    ) {
+                                        showBotSettings = true
                                     },
-                                    textStyle = androidx.compose.ui.text.TextStyle(color = Color.White, fontSize = 13.sp, fontFamily = LiterarySerifFontFamily),
-                                    singleLine = true,
-                                    cursorBrush = androidx.compose.ui.graphics.SolidColor(Color(0xFFA855F7)),
-                                    modifier = Modifier.fillMaxWidth()
-                                )
-                            }
-                            if (localSearchQuery.isNotEmpty()) {
-                                val clrInteraction = remember { MutableInteractionSource() }
+                                contentAlignment = Alignment.CenterStart
+                            ) {
+                                // Smoky frosted glass banner pill (soft diffused fade into night air, zero sharp wireframe outline)
                                 Box(
                                     modifier = Modifier
-                                        .size(34.dp)
-                                        .clip(RoundedCornerShape(10.dp))
-                                        .background(Color(0x30F87171))
-                                        .border(1.dp, Color(0x60F87171), RoundedCornerShape(10.dp))
-                                        .clickable(interactionSource = clrInteraction, indication = null) {
-                                            localSearchQuery = ""
-                                            viewModel.clearSearch()
-                                        },
-                                    contentAlignment = Alignment.Center
-                                ) {
-                                    Icon(Icons.Default.Close, "Temizle", tint = Color(0xFFF87171), modifier = Modifier.size(16.dp))
-                                }
-                            }
-                        }
-                    }
-
-                    // Search results summary
-                    AnimatedVisibility(
-                        visible = showSearchBar && searchResults.isNotEmpty(),
-                        enter = fadeIn(tween(200)),
-                        exit = fadeOut(tween(150))
-                    ) {
-                        Text(
-                            text = "${searchResults.size} sonuç bulundu",
-                            color = Color(0xFF9D74E8),
-                            fontSize = 11.sp,
-                            fontFamily = LiterarySerifFontFamily,
-                            modifier = Modifier.padding(start = 16.dp, bottom = 6.dp)
-                        )
-                    }
-
-                    // Expandable Header Stats Banner (Personal Mode Only)
-                    AnimatedVisibility(
-                        visible = !isImeVisible && isStatsExpanded && bot.mode == "personal",
-                        enter = fadeIn(tween(250)) + expandVertically(tween(250, easing = FastOutSlowInEasing)),
-                        exit = fadeOut(tween(180)) + shrinkVertically(tween(180))
-                    ) {
-                        Box(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(horizontal = 14.dp, vertical = 5.dp)
-                                .clip(RoundedCornerShape(16.dp))
-                                .background(
-                                    Brush.linearGradient(
-                                        listOf(Color(0xFF120B28), Color(0xFF0C0720))
-                                    )
-                                )
-                                .border(
-                                    BorderStroke(
-                                        1.dp,
-                                        Brush.linearGradient(
-                                            listOf(Color(0x809333EA), Color(0x404C1D95), Color(0x807C3AED))
-                                        )
-                                    ),
-                                    RoundedCornerShape(16.dp)
-                                )
-                                .padding(horizontal = 14.dp, vertical = 8.dp)
-                        ) {
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.SpaceBetween,
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Row(
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(6.dp)
-                                ) {
-                                    Box(
-                                        modifier = Modifier
-                                            .size(7.dp)
-                                            .clip(CircleShape)
-                                            .background(
-                                                Brush.radialGradient(
-                                                    listOf(Color(0xFFC084FC), Color(0xFF7C3AED))
+                                        .fillMaxWidth()
+                                        .height(48.dp)
+                                        .padding(start = 16.dp)
+                                        .clip(RoundedCornerShape(50))
+                                        .aetheriaBackdropBlur(rootSize, blurredBgBitmap, alpha = 0.86f)
+                                        .background(
+                                            Brush.horizontalGradient(
+                                                colors = listOf(
+                                                    Color(0x8815072A),
+                                                    Color(0x6E1B0A35),
+                                                    Color(0x36140726),
+                                                    Color.Transparent
                                                 )
                                             )
-                                    )
-                                    Text(
-                                        text = userSettings?.selectedModel?.ifBlank { "Gemini 2.0 Flash" } ?: "Gemini 2.0 Flash",
-                                        color = Color(0xFFCDA8FF),
-                                        fontSize = 11.sp,
-                                        fontWeight = FontWeight.SemiBold
-                                    )
+                                        )
+                                        .padding(start = 36.dp, end = 6.dp),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Column(
+                                        horizontalAlignment = Alignment.CenterHorizontally,
+                                        verticalArrangement = Arrangement.Center,
+                                        modifier = Modifier.fillMaxWidth()
+                                    ) {
+                                        Row(
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.Center
+                                        ) {
+                                            Text(
+                                                text = headerTitle,
+                                                color = Color(0xFFFBF8FF),
+                                                fontSize = 14.2.sp,
+                                                fontWeight = FontWeight.Normal,
+                                                fontFamily = LiterarySerifFontFamily,
+                                                letterSpacing = 0.05.sp,
+                                                maxLines = 1,
+                                                overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+                                                textAlign = TextAlign.Center,
+                                                modifier = Modifier.weight(1f, fill = false),
+                                                style = TextStyle(
+                                                    shadow = Shadow(
+                                                        color = Color(0xAA120524),
+                                                        offset = Offset(0f, 1.5f),
+                                                        blurRadius = 6f
+                                                    )
+                                                )
+                                            )
+                                            Spacer(modifier = Modifier.width(5.dp))
+                                            PurpleVerifiedBadge()
+                                        }
+                                        Spacer(modifier = Modifier.height(1.dp))
+                                        // Ornamental ──── ✦ Evrenler ✦ ──── subtitle
+                                        Row(
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.Center,
+                                            modifier = Modifier.fillMaxWidth()
+                                        ) {
+                                            Box(
+                                                modifier = Modifier
+                                                    .width(34.dp)
+                                                    .height(0.8.dp)
+                                                    .background(
+                                                        Brush.horizontalGradient(
+                                                            listOf(Color.Transparent, Color(0xBBE9D5FF))
+                                                        )
+                                                    )
+                                            )
+                                            Text(
+                                                text = " ✦ Evrenler ✦ ",
+                                                color = Color(0xFFE9D5FF).copy(alpha = 0.90f),
+                                                fontSize = 10.sp,
+                                                fontFamily = LiterarySerifFontFamily,
+                                                letterSpacing = 0.3.sp
+                                            )
+                                            Box(
+                                                modifier = Modifier
+                                                    .width(34.dp)
+                                                    .height(0.8.dp)
+                                                    .background(
+                                                        Brush.horizontalGradient(
+                                                            listOf(Color(0xBBE9D5FF), Color.Transparent)
+                                                        )
+                                                    )
+                                            )
+                                        }
+                                    }
                                 }
 
-                                Row(
-                                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                                    verticalAlignment = Alignment.CenterVertically
+                                // Left Cosmic Sigil Medallion overlapping the pill edge
+                                AidenMagicSigilAvatar(
+                                    totalSize = 56.dp,
+                                    contentDescription = headerTitle,
+                                    initial = avatarInitial,
+                                    modifier = Modifier
+                                        .align(Alignment.CenterStart)
+                                        .zIndex(10f)
+                                )
+                            }
+
+                            // 2.3 Sağ Arama (🔍) Butonu — Translucent Frosted Glass Circle
+                            Box(
+                                modifier = Modifier
+                                    .size(43.dp)
+                                    .morCamOuterGlow(cornerRadius = 22.dp, shadowAlpha = 0.34f, rimGlowAlpha = 0.24f, bottomFlareAlpha = 0.42f)
+                                    .clip(CircleShape)
+                                    .aetheriaBackdropBlur(rootSize, blurredBgBitmap, alpha = 0.92f)
+                                    .background(
+                                        Brush.verticalGradient(
+                                            colors = listOf(
+                                                Color(0x52301658),
+                                                Color(0x6E15082A)
+                                            )
+                                        )
+                                    )
+                                    .border(
+                                        BorderStroke(
+                                            0.85.dp,
+                                            Brush.linearGradient(
+                                                listOf(Color(0xBCE9D5FF), Color(0x559333EA), Color(0xCCD8B4FE))
+                                            )
+                                        ),
+                                        CircleShape
+                                    )
+                                    .morCamTopAndBottomSpecular(cornerRadius = 22.dp, topSheenAlpha = 0.24f, bottomFlareAlpha = 0.78f)
+                                    .clickable(
+                                        interactionSource = remember { MutableInteractionSource() },
+                                        indication = null
+                                    ) {
+                                        showSearchBar = !showSearchBar
+                                        if (!showSearchBar) {
+                                            localSearchQuery = ""
+                                            viewModel.clearSearch()
+                                        }
+                                    },
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Search,
+                                    contentDescription = "Ara",
+                                    tint = Color(0xFFFBF8FF),
+                                    modifier = Modifier.size(19.dp)
+                                )
+                            }
+
+                            // 2.4 Sağ Ayarlar (⚙️) Butonu — Translucent Frosted Glass Circle
+                            Box(
+                                modifier = Modifier
+                                    .size(43.dp)
+                                    .morCamOuterGlow(cornerRadius = 22.dp, shadowAlpha = 0.34f, rimGlowAlpha = 0.24f, bottomFlareAlpha = 0.42f)
+                                    .clip(CircleShape)
+                                    .aetheriaBackdropBlur(rootSize, blurredBgBitmap, alpha = 0.92f)
+                                    .background(
+                                        Brush.verticalGradient(
+                                            colors = listOf(
+                                                Color(0x52301658),
+                                                Color(0x6E15082A)
+                                            )
+                                        )
+                                    )
+                                    .border(
+                                        BorderStroke(
+                                            0.85.dp,
+                                            Brush.linearGradient(
+                                                listOf(Color(0xBCE9D5FF), Color(0x559333EA), Color(0xCCD8B4FE))
+                                            )
+                                        ),
+                                        CircleShape
+                                    )
+                                    .morCamTopAndBottomSpecular(cornerRadius = 22.dp, topSheenAlpha = 0.24f, bottomFlareAlpha = 0.78f)
+                                    .clickable(
+                                        interactionSource = remember { MutableInteractionSource() },
+                                        indication = null
+                                    ) { showBotSettings = true }
+                                    .testTag("bot_settings_button"),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Settings,
+                                    contentDescription = "Ayarlar",
+                                    tint = Color(0xFFFBF8FF),
+                                    modifier = Modifier.size(19.dp)
+                                )
+                            }
+                        }
+
+                        // Search bar (slide-in)
+                        AnimatedVisibility(
+                            visible = showSearchBar,
+                            enter = slideInVertically(tween(220, easing = FastOutSlowInEasing)) { -it } + fadeIn(tween(220)),
+                            exit = slideOutVertically(tween(180)) { -it } + fadeOut(tween(180))
+                        ) {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(horizontal = 14.dp, vertical = 6.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .clip(RoundedCornerShape(14.dp))
+                                        .aetheriaBackdropBlur(rootSize, blurredBgBitmap, alpha = 0.28f)
+                                        .background(Color(0x66160830))
+                                        .border(1.dp, Brush.linearGradient(listOf(Color(0xFFD8B4FE), Color(0xFF7C3AED))), RoundedCornerShape(14.dp))
+                                        .padding(horizontal = 14.dp, vertical = 10.dp)
                                 ) {
-                                    Box(
-                                        modifier = Modifier
-                                            .clip(RoundedCornerShape(20.dp))
-                                            .background(Color(0x35E11D48))
-                                            .border(
-                                                BorderStroke(
-                                                    0.8.dp,
-                                                    Brush.linearGradient(
-                                                        listOf(Color(0xFFFB7185), Color(0xFFE11D48))
-                                                    )
-                                                ),
-                                                RoundedCornerShape(20.dp)
-                                            )
-                                            .padding(horizontal = 10.dp, vertical = 4.dp)
-                                    ) {
-                                        Text(
-                                            text = "❤️ ${emotionState.affection}%",
-                                            color = Color(0xFFFDA4AF),
-                                            fontSize = 11.sp,
-                                            fontWeight = FontWeight.ExtraBold
-                                        )
+                                    if (localSearchQuery.isEmpty()) {
+                                        Text("Mesajlarda ara...", color = Color(0x88E9D5FF), fontSize = 13.sp, fontFamily = LiterarySerifFontFamily)
                                     }
+                                    androidx.compose.foundation.text.BasicTextField(
+                                        value = localSearchQuery,
+                                        onValueChange = { q ->
+                                            localSearchQuery = q
+                                            viewModel.setSearchQuery(q.ifBlank { null })
+                                        },
+                                        textStyle = androidx.compose.ui.text.TextStyle(color = Color.White, fontSize = 13.sp, fontFamily = LiterarySerifFontFamily),
+                                        singleLine = true,
+                                        cursorBrush = androidx.compose.ui.graphics.SolidColor(Color(0xFFA855F7)),
+                                        modifier = Modifier.fillMaxWidth()
+                                    )
+                                }
+                                if (localSearchQuery.isNotEmpty()) {
+                                    val clrInteraction = remember { MutableInteractionSource() }
                                     Box(
                                         modifier = Modifier
-                                            .clip(RoundedCornerShape(20.dp))
-                                            .background(Color(0x3538BDF8))
-                                            .border(
-                                                BorderStroke(
-                                                    0.8.dp,
-                                                    Brush.linearGradient(
-                                                        listOf(Color(0xFF38BDF8), Color(0xFF0EA5E9))
-                                                    )
-                                                ),
-                                                RoundedCornerShape(20.dp)
-                                            )
-                                            .padding(horizontal = 10.dp, vertical = 4.dp)
+                                            .size(34.dp)
+                                            .clip(RoundedCornerShape(10.dp))
+                                            .background(Color(0x38F87171))
+                                            .border(1.dp, Color(0x70F87171), RoundedCornerShape(10.dp))
+                                            .clickable(interactionSource = clrInteraction, indication = null) {
+                                                localSearchQuery = ""
+                                                viewModel.clearSearch()
+                                            },
+                                        contentAlignment = Alignment.Center
                                     ) {
-                                        Text(
-                                            text = "🛡️ ${emotionState.trust}%",
-                                            color = Color(0xFF7DD3FC),
-                                            fontSize = 11.sp,
-                                            fontWeight = FontWeight.ExtraBold
-                                        )
+                                        Icon(Icons.Default.Close, "Temizle", tint = Color(0xFFF87171), modifier = Modifier.size(16.dp))
                                     }
                                 }
                             }
                         }
-                    }
 
-                    AnimatedVisibility(
-                        visible = isSpeaking && !isImeVisible,
-                        enter = fadeIn(tween(200)) + expandVertically(tween(200)),
-                        exit = fadeOut(tween(160)) + shrinkVertically(tween(160))
-                    ) {
-                        Box(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(horizontal = 14.dp, vertical = 3.dp)
-                                .clip(RoundedCornerShape(12.dp))
-                                .background(
-                                    Brush.linearGradient(
-                                        listOf(Color(0xFF1A0A38), Color(0xFF100626))
-                                    )
-                                )
-                                .border(
-                                    BorderStroke(
-                                        1.dp,
-                                        Brush.linearGradient(
-                                            listOf(Color(0x809333EA), Color(0x404C1D95))
-                                        )
-                                    ),
-                                    RoundedCornerShape(12.dp)
-                                )
-                                .padding(horizontal = 14.dp, vertical = 7.dp)
+                        // Search results summary
+                        AnimatedVisibility(
+                            visible = showSearchBar && searchResults.isNotEmpty(),
+                            enter = fadeIn(tween(200)),
+                            exit = fadeOut(tween(150))
                         ) {
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.SpaceBetween,
-                                verticalAlignment = Alignment.CenterVertically
+                            Text(
+                                text = "${searchResults.size} sonuç bulundu",
+                                color = Color(0xFFD8B4FE),
+                                fontSize = 11.sp,
+                                fontFamily = LiterarySerifFontFamily,
+                                modifier = Modifier.padding(start = 16.dp, bottom = 4.dp)
+                            )
+                        }
+
+                        AnimatedVisibility(
+                            visible = isSpeaking && !isImeVisible,
+                            enter = fadeIn(tween(200)) + expandVertically(tween(200)),
+                            exit = fadeOut(tween(160)) + shrinkVertically(tween(160))
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(horizontal = 14.dp, vertical = 4.dp)
+                                    .clip(RoundedCornerShape(14.dp))
+                                    .aetheriaBackdropBlur(rootSize, blurredBgBitmap, alpha = 0.28f)
+                                    .background(Color(0x5E1A0A38))
+                                    .border(
+                                        BorderStroke(
+                                            1.dp,
+                                            Brush.linearGradient(
+                                                listOf(Color(0xBBD8B4FE), Color(0x667C3AED))
+                                            )
+                                        ),
+                                        RoundedCornerShape(14.dp)
+                                    )
+                                    .padding(horizontal = 14.dp, vertical = 7.dp)
                             ) {
-                                Text(
-                                    text = "🔊 Sesli okunuyor...",
-                                    color = Color(0xFFCDA8FF),
-                                    fontSize = 12.sp,
-                                    fontWeight = FontWeight.SemiBold
-                                )
-                                Box(
-                                    modifier = Modifier
-                                        .clip(RoundedCornerShape(8.dp))
-                                        .background(Color(0x30A855F7))
-                                        .border(1.dp, Color(0x50A855F7), RoundedCornerShape(8.dp))
-                                        .clickable { onStopSpeaking() }
-                                        .padding(horizontal = 10.dp, vertical = 4.dp)
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
                                 ) {
-                                    Text("⏹️ Durdur", color = Color(0xFFCDA8FF), fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                    Text(
+                                        text = "🔊 Sesli okunuyor...",
+                                        color = Color(0xFFE9D5FF),
+                                        fontSize = 12.sp,
+                                        fontWeight = FontWeight.SemiBold
+                                    )
+                                    Box(
+                                        modifier = Modifier
+                                            .clip(RoundedCornerShape(8.dp))
+                                            .background(Color(0x38A855F7))
+                                            .border(1.dp, Color(0x70D8B4FE), RoundedCornerShape(8.dp))
+                                            .clickable { onStopSpeaking() }
+                                            .padding(horizontal = 10.dp, vertical = 4.dp)
+                                    ) {
+                                        Text("⏹️ Durdur", color = Color(0xFFF3E8FF), fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                    }
                                 }
                             }
                         }
@@ -1726,267 +1830,508 @@ fun ChatScreen(
                 }
             },
             bottomBar = {
-                // ── SECTION 5 & SECTION 6: ALT HIZLI ÖNERİ KARTLARI + ALT MESAJ YAZMA BARI (1:1 REFERENCE SLICES) ──
-                Column(
+                // ── SECTION 5 & SECTION 6: ALT HIZLI ÖNERİ KARTLARI + ALT MESAJ YAZMA BARI (TRUE TRANSLUCENT GLASS & SMOOTH FEATHERED TRANSITION) ──
+                Box(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Bottom))
-                        .padding(bottom = 2.dp)
+                        .background(
+                            Brush.verticalGradient(
+                                colors = listOf(
+                                    Color.Transparent,
+                                    Color(0x14100422),
+                                    Color(0x480D041C)
+                                )
+                            )
+                        )
                 ) {
-                    // Interactive (+) RP & Sahne Araçları Drawer
-                    AnimatedVisibility(
-                        visible = showPlusToolkit,
-                        enter = fadeIn(tween(180)) + expandVertically(tween(180)),
-                        exit = fadeOut(tween(140)) + shrinkVertically(tween(140))
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Bottom))
+                            .padding(top = 12.dp, bottom = 6.dp)
                     ) {
+                        // Interactive (+) RP & Sahne Araçları Drawer
+                        AnimatedVisibility(
+                            visible = showPlusToolkit,
+                            enter = fadeIn(tween(180)) + expandVertically(tween(180)),
+                            exit = fadeOut(tween(140)) + shrinkVertically(tween(140))
+                        ) {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .horizontalScroll(rememberScrollState())
+                                    .padding(horizontal = 12.dp, vertical = 6.dp),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                val tools = listOf(
+                                    "⏩ Devam Et" to {
+                                        showPlusToolkit = false
+                                        if (!isSending) {
+                                            if (onContinueScene != null) onContinueScene()
+                                            else viewModel.continueStoryScene()
+                                        }
+                                    },
+                                    "✨ Sahneyi Derinleştir" to {
+                                        showPlusToolkit = false
+                                        if (!isSending) {
+                                            onSendMessage("Mevcut sahneyi kesmeden ortam atmosferini, karakterin iç sesini ve duygusal gerilimi edebi olarak derinleştir.")
+                                        }
+                                    },
+                                    "💡 Ne Yapmalıyım?" to {
+                                        showPlusToolkit = false
+                                        if (!isSending) {
+                                            onSendMessage("Şu anki roman kurgusunda yapabileceğim 3 farklı dramatik hamle (1. Karanlık/Riskli hamle, 2. Tutkulu/Duygusal hamle, 3. Stratejik hamle) öner ve sahneyi sürdür.")
+                                        }
+                                    },
+                                    "✨ *Eylem Ekle*" to {
+                                        val t = inputText.trim()
+                                        inputText = if (t.isBlank()) "*...*" else if (t.startsWith("*") && t.endsWith("*")) t.trim('*') else "*$t*"
+                                        showPlusToolkit = false
+                                    },
+                                    "🎲 Kader Zarı" to {
+                                        showPlusToolkit = false
+                                        if (!isSending) onSendMessage("*Beklenmedik bir gelişme yaşanır ve sahnenin dengesi aniden değişir.*")
+                                    },
+                                    "⏳ Zaman Atla" to {
+                                        showPlusToolkit = false
+                                        if (!isSending) onSendMessage("*Aradan biraz zaman geçer; sahne bir sonraki kritik ana ilerler.*")
+                                    },
+                                    "🌌 Ortamı Betimle" to {
+                                        showPlusToolkit = false
+                                        if (!isSending) onSendMessage("Lütfen şu an bulunduğumuz ortamı, ışığı, sesleri ve atmosferi tüm duyularla hissettirecek şekilde betimle.")
+                                    },
+                                    "🧠 İç Ses" to {
+                                        showPlusToolkit = false
+                                        if (!isSending) onSendMessage("Karakterin şu an dışarıya belli etmediği gerçek iç düşüncelerini ve duygularını hissettirerek devam et.")
+                                    }
+                                )
+                                tools.forEach { (label, action) ->
+                                    Box(
+                                        modifier = Modifier
+                                            .height(36.dp)
+                                            .morCamOuterGlow(cornerRadius = 18.dp, shadowAlpha = 0.30f, rimGlowAlpha = 0.32f, bottomFlareAlpha = 0.62f)
+                                            .clip(RoundedCornerShape(50))
+                                            .aetheriaBackdropBlur(rootSize, blurredBgBitmap, alpha = 0.84f)
+                                            .background(Color(0x4432165C))
+                                            .border(
+                                                BorderStroke(1.dp, Color(0xBBE9D5FF)),
+                                                RoundedCornerShape(50)
+                                            )
+                                            .morCamTopAndBottomSpecular(cornerRadius = 18.dp, topSheenAlpha = 0.24f, bottomFlareAlpha = 0.80f)
+                                            .clickable { action() }
+                                            .padding(horizontal = 14.dp),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        Text(
+                                            text = label,
+                                            color = Color.White,
+                                            fontSize = 12.5.sp,
+                                            fontFamily = LiterarySerifFontFamily
+                                        )
+                                    }
+                                }
+                            }
+                        }
+
+                        // ── SECTION 5: ALT HIZLI ÖNERİ KARTLARI (True Translucent Glass Cards) ──
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .horizontalScroll(rememberScrollState())
-                                .padding(horizontal = 12.dp, vertical = 6.dp),
+                                .padding(horizontal = 12.dp),
                             horizontalArrangement = Arrangement.spacedBy(8.dp),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
-                            val tools = listOf(
-                                "⏩ Devam Et" to {
-                                    showPlusToolkit = false
-                                    if (!isSending) {
-                                        if (onContinueScene != null) onContinueScene()
-                                        else viewModel.continueStoryScene()
+                            @Composable
+                            fun TranslucentQuickActionCard(
+                                iconType: String,
+                                title: String,
+                                subtitle: String,
+                                modifier: Modifier = Modifier,
+                                enabled: Boolean = true,
+                                onClick: () -> Unit
+                            ) {
+                                val cardInteraction = remember { MutableInteractionSource() }
+                                val isCardPressed by cardInteraction.collectIsPressedAsState()
+                                val cardScale by animateFloatAsState(
+                                    targetValue = if (isCardPressed) 0.97f else 1f,
+                                    animationSpec = spring(stiffness = Spring.StiffnessMediumLow),
+                                    label = "quickCardScale_$iconType"
+                                )
+                                Box(
+                                    modifier = modifier
+                                        .height(58.dp)
+                                        .graphicsLayer {
+                                            scaleX = cardScale
+                                            scaleY = cardScale
+                                        }
+                                        .morCamOuterGlow(cornerRadius = 18.dp, shadowAlpha = 0.34f, rimGlowAlpha = 0.24f, bottomFlareAlpha = 0.44f)
+                                        .clip(RoundedCornerShape(18.dp))
+                                        .aetheriaBackdropBlur(rootSize, blurredBgBitmap, alpha = 0.94f)
+                                        .background(
+                                            Brush.verticalGradient(
+                                                colors = listOf(
+                                                    Color(0x54381C66),
+                                                    Color(0x6E1B0B34)
+                                                )
+                                            )
+                                        )
+                                        .border(
+                                            BorderStroke(
+                                                0.9.dp,
+                                                Brush.linearGradient(
+                                                    listOf(
+                                                        Color(0xC8E9D5FF),
+                                                        Color(0x589333EA),
+                                                        Color(0xC8D8B4FE)
+                                                    )
+                                                )
+                                            ),
+                                            RoundedCornerShape(18.dp)
+                                        )
+                                        .morCamTopAndBottomSpecular(cornerRadius = 18.dp, topSheenAlpha = 0.26f, bottomFlareAlpha = 0.84f)
+                                        .clickable(
+                                            enabled = enabled,
+                                            interactionSource = cardInteraction,
+                                            indication = null
+                                        ) { onClick() }
+                                        .padding(horizontal = 8.dp, vertical = 6.dp),
+                                    contentAlignment = Alignment.CenterStart
+                                ) {
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(7.dp)
+                                    ) {
+                                        QuickActionIconWell(type = iconType, modifier = Modifier.size(32.dp))
+                                        Column(
+                                            verticalArrangement = Arrangement.Center
+                                        ) {
+                                            Text(
+                                                text = title,
+                                                color = Color(0xFFFBF8FF),
+                                                fontSize = 11.2.sp,
+                                                lineHeight = 13.sp,
+                                                fontFamily = LiterarySerifFontFamily,
+                                                maxLines = 2,
+                                                overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
+                                            )
+                                            Text(
+                                                text = subtitle,
+                                                color = Color(0xFFE9D5FF).copy(alpha = 0.76f),
+                                                fontSize = 9.5.sp,
+                                                lineHeight = 11.sp,
+                                                fontFamily = LiterarySerifFontFamily,
+                                                maxLines = 1,
+                                                overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
+                                            )
+                                        }
                                     }
-                                },
-                                "✨ Sahneyi Derinleştir" to {
-                                    showPlusToolkit = false
-                                    if (!isSending) {
-                                        onSendMessage("Mevcut sahneyi kesmeden ortam atmosferini, karakterin iç sesini ve duygusal gerilimi edebi olarak derinleştir.")
-                                    }
-                                },
-                                "💡 Ne Yapmalıyım?" to {
-                                    showPlusToolkit = false
-                                    if (!isSending) {
-                                        onSendMessage("Şu anki roman kurgusunda yapabileceğim 3 farklı dramatik hamle (1. Karanlık/Riskli hamle, 2. Tutkulu/Duygusal hamle, 3. Stratejik hamle) öner ve sahneyi sürdür.")
-                                    }
-                                },
-                                "✨ *Eylem Ekle*" to {
-                                    val t = inputText.trim()
-                                    inputText = if (t.isBlank()) "*...*" else if (t.startsWith("*") && t.endsWith("*")) t.trim('*') else "*$t*"
-                                    showPlusToolkit = false
-                                },
-                                "🎲 Kader Zarı" to {
-                                    showPlusToolkit = false
-                                    if (!isSending) onSendMessage("*Beklenmedik bir gelişme yaşanır ve sahnenin dengesi aniden değişir.*")
-                                },
-                                "⏳ Zaman Atla" to {
-                                    showPlusToolkit = false
-                                    if (!isSending) onSendMessage("*Aradan biraz zaman geçer; sahne bir sonraki kritik ana ilerler.*")
-                                },
-                                "🌌 Ortamı Betimle" to {
-                                    showPlusToolkit = false
-                                    if (!isSending) onSendMessage("Lütfen şu an bulunduğumuz ortamı, ışığı, sesleri ve atmosferi tüm duyularla hissettirecek şekilde betimle.")
-                                },
-                                "🧠 İç Ses" to {
-                                    showPlusToolkit = false
-                                    if (!isSending) onSendMessage("Karakterin şu an dışarıya belli etmediği gerçek iç düşüncelerini ve duygularını hissettirerek devam et.")
                                 }
-                            )
-                            tools.forEach { (label, action) ->
+                            }
+
+                            // Card 1: Sahneyi Derinleştir
+                            TranslucentQuickActionCard(
+                                iconType = "compass",
+                                title = "Sahneyi\nDerinleştir",
+                                subtitle = "Daha fazla ...",
+                                modifier = Modifier.weight(1.05f),
+                                enabled = !isSending
+                            ) {
+                                onSendMessage("Mevcut sahneyi kesmeden ortam atmosferini, karakterin iç sesini ve duygusal gerilimi edebi olarak derinleştir.")
+                            }
+
+                            // Card 2: Ne Yapmalıyım?
+                            TranslucentQuickActionCard(
+                                iconType = "bulb",
+                                title = "Ne\nYapmalıyım?",
+                                subtitle = "Strateji öner",
+                                modifier = Modifier.weight(1.08f),
+                                enabled = !isSending
+                            ) {
+                                onSendMessage("Şu anki roman kurgusunda yapabileceğim 3 farklı dramatik hamle (1. Karanlık/Riskli hamle, 2. Tutkulu/Duygusal hamle, 3. Stratejik hamle) öner ve sahneyi sürdür.")
+                            }
+
+                            // Card 3: Düzenle
+                            TranslucentQuickActionCard(
+                                iconType = "pencil",
+                                title = "Düzenle",
+                                subtitle = "Mesajı değiştir",
+                                modifier = Modifier.weight(0.95f),
+                                enabled = true
+                            ) {
+                                val targetMsg = validMessages.lastOrNull()
+                                if (targetMsg != null) {
+                                    editingMessageId = targetMsg.id
+                                    editingText = targetMsg.text
+                                }
+                            }
+                        }
+
+                        Spacer(modifier = Modifier.height(8.dp))
+
+                        // ── SECTION 6: ALT MESAJ YAZMA BARI (Nested Double-Glass Capsule matching img_chat_ref_input_bar_notext + Glowing Send Orb) ──
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 12.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            // Outer Frosted Glass Stadium Frame wrapping BOTH (+) Circle AND (Bir mesaj yazın... 📎) Pill
+                            Row(
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .heightIn(min = 52.dp)
+                                    .morCamOuterGlow(cornerRadius = 26.dp, shadowAlpha = 0.36f, rimGlowAlpha = 0.24f, bottomFlareAlpha = 0.44f)
+                                    .clip(RoundedCornerShape(50))
+                                    .aetheriaBackdropBlur(rootSize, blurredBgBitmap, alpha = 0.94f)
+                                    .background(
+                                        Brush.verticalGradient(
+                                            colors = listOf(
+                                                Color(0x5230175A),
+                                                Color(0x6C15082A)
+                                            )
+                                        )
+                                    )
+                                    .border(
+                                        BorderStroke(
+                                            0.9.dp,
+                                            Brush.linearGradient(
+                                                listOf(Color(0xBCE9D5FF), Color(0x589333EA), Color(0xC8D8B4FE))
+                                            )
+                                        ),
+                                        RoundedCornerShape(50)
+                                    )
+                                    .morCamTopAndBottomSpecular(cornerRadius = 26.dp, topSheenAlpha = 0.24f, bottomFlareAlpha = 0.80f)
+                                    .padding(4.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                            ) {
+                                // 6.1 Sol (+) Butonu — Nested Inner Glass Circle
                                 Box(
                                     modifier = Modifier
-                                        .height(36.dp)
-                                        .morCamOuterGlow(cornerRadius = 18.dp, shadowAlpha = 0.35f, rimGlowAlpha = 0.35f, bottomFlareAlpha = 0.65f)
-                                        .clip(RoundedCornerShape(50))
-                                        .aetheriaBackdropBlur(rootSize, blurredBgBitmap, alpha = 0.90f)
-                                        .background(Color(0x7A1C0F36))
-                                        .border(
-                                            BorderStroke(0.95.dp, Color(0x99D8B4FE)),
-                                            RoundedCornerShape(50)
+                                        .size(44.dp)
+                                        .clip(CircleShape)
+                                        .background(
+                                            Brush.verticalGradient(
+                                                colors = listOf(
+                                                    Color(0x5C241046),
+                                                    Color(0x70120726)
+                                                )
+                                            )
                                         )
-                                        .morCamTopAndBottomSpecular(cornerRadius = 18.dp, topSheenAlpha = 0.20f, bottomFlareAlpha = 0.80f)
-                                        .clickable { action() }
-                                        .padding(horizontal = 14.dp),
+                                        .border(
+                                            BorderStroke(
+                                                0.8.dp,
+                                                Brush.linearGradient(
+                                                    listOf(Color(0x88D8B4FE), Color(0x457C3AED), Color(0x80C084FC))
+                                                )
+                                            ),
+                                            CircleShape
+                                        )
+                                        .clickable(
+                                            interactionSource = remember { MutableInteractionSource() },
+                                            indication = null
+                                        ) {
+                                            showPlusToolkit = !showPlusToolkit
+                                        },
                                     contentAlignment = Alignment.Center
                                 ) {
-                                    Text(
-                                        text = label,
-                                        color = Color.White,
-                                        fontSize = 12.5.sp,
-                                        fontFamily = LiterarySerifFontFamily
+                                    Canvas(modifier = Modifier.size(18.dp)) {
+                                        val cx = size.width / 2f
+                                        val cy = size.height / 2f
+                                        drawLine(
+                                            color = Color.White,
+                                            start = Offset(cx, size.height * 0.14f),
+                                            end = Offset(cx, size.height * 0.86f),
+                                            strokeWidth = 2.dp.toPx(),
+                                            cap = androidx.compose.ui.graphics.StrokeCap.Round
+                                        )
+                                        drawLine(
+                                            color = Color.White,
+                                            start = Offset(size.width * 0.14f, cy),
+                                            end = Offset(size.width * 0.86f, cy),
+                                            strokeWidth = 2.dp.toPx(),
+                                            cap = androidx.compose.ui.graphics.StrokeCap.Round
+                                        )
+                                    }
+                                }
+
+                                // 6.2 Orta Mesaj Giriş Kapsülü — Nested Inner Glass Pill + Paperclip 📎
+                                Row(
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .heightIn(min = 44.dp)
+                                        .clip(RoundedCornerShape(50))
+                                        .background(
+                                            Brush.verticalGradient(
+                                                colors = listOf(
+                                                    Color(0x4C220E42),
+                                                    Color(0x64120726)
+                                                )
+                                            )
+                                        )
+                                        .border(
+                                            BorderStroke(
+                                                0.8.dp,
+                                                Brush.linearGradient(
+                                                    listOf(Color(0x78D8B4FE), Color(0x407C3AED), Color(0x70C084FC))
+                                                )
+                                            ),
+                                            RoundedCornerShape(50)
+                                        )
+                                        .padding(start = 16.dp, end = 10.dp, top = 7.dp, bottom = 7.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Box(
+                                        modifier = Modifier.weight(1f),
+                                        contentAlignment = Alignment.CenterStart
+                                    ) {
+                                        if (inputText.isEmpty()) {
+                                            Text(
+                                                text = "Bir mesaj yazın...",
+                                                color = Color(0xFFE9D5FF).copy(alpha = 0.78f),
+                                                fontSize = 15.sp,
+                                                fontFamily = LiterarySerifFontFamily
+                                            )
+                                        }
+                                        androidx.compose.foundation.text.BasicTextField(
+                                            value = inputText,
+                                            onValueChange = { inputText = it },
+                                            textStyle = TextStyle(
+                                                color = Color.White,
+                                                fontSize = 15.5.sp,
+                                                fontFamily = LiterarySerifFontFamily
+                                            ),
+                                            cursorBrush = androidx.compose.ui.graphics.SolidColor(Color(0xFFE9D5FF)),
+                                            maxLines = 3,
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .testTag("chat_input_field")
+                                        )
+                                    }
+
+                                    Spacer(modifier = Modifier.width(6.dp))
+
+                                    // 6.3 Sağ İç Ataş (📎) Butonu
+                                    Box(
+                                        modifier = Modifier
+                                            .size(28.dp)
+                                            .clip(CircleShape)
+                                            .clickable(
+                                                interactionSource = remember { MutableInteractionSource() },
+                                                indication = null
+                                            ) {
+                                                showBackgroundPicker = true
+                                            },
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        Canvas(modifier = Modifier.size(18.dp)) {
+                                            rotate(degrees = 35f, pivot = Offset(size.width / 2f, size.height / 2f)) {
+                                                val w = size.width
+                                                val h = size.height
+                                                val clipPath = Path().apply {
+                                                    moveTo(w * 0.35f, h * 0.72f)
+                                                    lineTo(w * 0.35f, h * 0.25f)
+                                                    arcTo(
+                                                        rect = androidx.compose.ui.geometry.Rect(w * 0.35f, h * 0.08f, w * 0.75f, h * 0.42f),
+                                                        startAngleDegrees = 180f,
+                                                        sweepAngleDegrees = 180f,
+                                                        forceMoveTo = false
+                                                    )
+                                                    lineTo(w * 0.75f, h * 0.76f)
+                                                    arcTo(
+                                                        rect = androidx.compose.ui.geometry.Rect(w * 0.25f, h * 0.56f, w * 0.75f, h * 0.94f),
+                                                        startAngleDegrees = 0f,
+                                                        sweepAngleDegrees = 180f,
+                                                        forceMoveTo = false
+                                                    )
+                                                    lineTo(w * 0.25f, h * 0.32f)
+                                                }
+                                                drawPath(
+                                                    path = clipPath,
+                                                    color = Color(0xFFE9D5FF),
+                                                    style = Stroke(
+                                                        width = 1.65.dp.toPx(),
+                                                        cap = androidx.compose.ui.graphics.StrokeCap.Round,
+                                                        join = androidx.compose.ui.graphics.StrokeJoin.Round
+                                                    )
+                                                )
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+
+                            // 6.4 Sağ Gönder (➤) Butonu — Luminous Neon Purple Crystal Orb
+                            Box(
+                                modifier = Modifier
+                                    .size(50.dp)
+                                    .morCamOuterGlow(cornerRadius = 25.dp, shadowAlpha = 0.45f, rimGlowAlpha = 0.76f, bottomFlareAlpha = 0.75f)
+                                    .clip(CircleShape)
+                                    .aetheriaBackdropBlur(rootSize, blurredBgBitmap, alpha = 0.84f)
+                                    .background(
+                                        Brush.radialGradient(
+                                            colors = listOf(
+                                                Color(0xEEB86CFF),
+                                                Color(0xDA7C3AED),
+                                                Color(0xC8581C87)
+                                            )
+                                        )
+                                    )
+                                    .border(
+                                        BorderStroke(
+                                            1.3.dp,
+                                            Brush.linearGradient(
+                                                listOf(Color.White, Color(0xFFE9D5FF), Color(0xFFC084FC))
+                                            )
+                                        ),
+                                        CircleShape
+                                    )
+                                    .morCamTopAndBottomSpecular(cornerRadius = 25.dp, topSheenAlpha = 0.36f, bottomFlareAlpha = 0.88f)
+                                    .clickable(
+                                        enabled = !isSending,
+                                        interactionSource = remember { MutableInteractionSource() },
+                                        indication = null
+                                    ) {
+                                        val text = inputText.trim()
+                                        if (text.isNotBlank()) {
+                                            inputText = ""
+                                            onSendMessage(text)
+                                        } else {
+                                            if (onContinueScene != null) onContinueScene()
+                                            else viewModel.continueStoryScene()
+                                        }
+                                    }
+                                    .testTag("send_message_button"),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Canvas(modifier = Modifier.size(20.dp)) {
+                                    val w = size.width
+                                    val h = size.height
+                                    val sendPath = Path().apply {
+                                        moveTo(w * 0.14f, h * 0.16f)
+                                        lineTo(w * 0.90f, h * 0.50f)
+                                        lineTo(w * 0.14f, h * 0.84f)
+                                        lineTo(w * 0.30f, h * 0.50f)
+                                        close()
+                                    }
+                                    drawPath(
+                                        path = sendPath,
+                                        color = Color.White
                                     )
                                 }
                             }
                         }
                     }
-
-                    // ── SECTION 5: ALT HIZLI ÖNERİ KARTLARI (1:1 Reference Slice: img_chat_ref_quick_cards) ──
-                    BoxWithConstraints(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .aspectRatio(841f / 138f)
-                    ) {
-                        val w = maxWidth
-                        val h = maxHeight
-
-                        androidx.compose.foundation.Image(
-                            painter = androidx.compose.ui.res.painterResource(id = com.example.R.drawable.img_chat_ref_quick_cards),
-                            contentDescription = "Sahneyi Derinleştir, Ne Yapmalıyım?, Düzenle",
-                            contentScale = androidx.compose.ui.layout.ContentScale.FillBounds,
-                            modifier = Modifier.fillMaxSize()
-                        )
-
-                        // Card 1: ✨ Sahneyi Derinleştir (x = 3.5%..35.0%)
-                        Box(
-                            modifier = Modifier
-                                .offset(x = w * 0.035f, y = h * 0.06f)
-                                .size(width = w * 0.315f, height = h * 0.88f)
-                                .clip(RoundedCornerShape(18.dp))
-                                .clickable(
-                                    enabled = !isSending,
-                                    interactionSource = remember { MutableInteractionSource() },
-                                    indication = null
-                                ) {
-                                    onSendMessage("Mevcut sahneyi kesmeden ortam atmosferini, karakterin iç sesini ve duygusal gerilimi edebi olarak derinleştir.")
-                                }
-                        )
-
-                        // Card 2: 💡 Ne Yapmalıyım? / Strateji öner (x = 36.8%..68.5%)
-                        Box(
-                            modifier = Modifier
-                                .offset(x = w * 0.368f, y = h * 0.06f)
-                                .size(width = w * 0.317f, height = h * 0.88f)
-                                .clip(RoundedCornerShape(18.dp))
-                                .clickable(
-                                    enabled = !isSending,
-                                    interactionSource = remember { MutableInteractionSource() },
-                                    indication = null
-                                ) {
-                                    onSendMessage("Şu anki roman kurgusunda yapabileceğim 3 farklı dramatik hamle (1. Karanlık/Riskli hamle, 2. Tutkulu/Duygusal hamle, 3. Stratejik hamle) öner ve sahneyi sürdür.")
-                                }
-                        )
-
-                        // Card 3: Düzenle / Mesajı değiştir (x = 70.0%..97.5%)
-                        Box(
-                            modifier = Modifier
-                                .offset(x = w * 0.700f, y = h * 0.06f)
-                                .size(width = w * 0.275f, height = h * 0.88f)
-                                .clip(RoundedCornerShape(18.dp))
-                                .clickable(
-                                    interactionSource = remember { MutableInteractionSource() },
-                                    indication = null
-                                ) {
-                                    val targetMsg = validMessages.lastOrNull()
-                                    if (targetMsg != null) {
-                                        editingMessageId = targetMsg.id
-                                        editingText = targetMsg.text
-                                    }
-                                }
-                        )
-                    }
-
-                    Spacer(modifier = Modifier.height(2.dp))
-
-                    // ── SECTION 6: ALT MESAJ YAZMA BARI (1:1 Reference Slice: img_chat_ref_input_bar / img_chat_ref_input_bar_notext) ──
-                    BoxWithConstraints(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .aspectRatio(841f / 138f)
-                    ) {
-                        val w = maxWidth
-                        val h = maxHeight
-
-                        val inputBarRes = if (inputText.isEmpty()) {
-                            com.example.R.drawable.img_chat_ref_input_bar
-                        } else {
-                            com.example.R.drawable.img_chat_ref_input_bar_notext
-                        }
-
-                        androidx.compose.foundation.Image(
-                            painter = androidx.compose.ui.res.painterResource(id = inputBarRes),
-                            contentDescription = "Bir mesaj yazın...",
-                            contentScale = androidx.compose.ui.layout.ContentScale.FillBounds,
-                            modifier = Modifier.fillMaxSize()
-                        )
-
-                        // 6.1 Sol (+) Butonu Hit-Box (x = 3.0%..15.5%)
-                        Box(
-                            modifier = Modifier
-                                .offset(x = w * 0.030f, y = h * 0.08f)
-                                .size(width = w * 0.125f, height = h * 0.84f)
-                                .clip(CircleShape)
-                                .clickable(
-                                    interactionSource = remember { MutableInteractionSource() },
-                                    indication = null
-                                ) {
-                                    showPlusToolkit = !showPlusToolkit
-                                }
-                        )
-
-                        // 6.2 Orta Mesaj Giriş Alanı (BasicTextField) (x = 20.0%..71.0%)
-                        Box(
-                            modifier = Modifier
-                                .offset(x = w * 0.200f, y = h * 0.14f)
-                                .size(width = w * 0.510f, height = h * 0.72f),
-                            contentAlignment = Alignment.CenterStart
-                        ) {
-                            androidx.compose.foundation.text.BasicTextField(
-                                value = inputText,
-                                onValueChange = { inputText = it },
-                                textStyle = TextStyle(
-                                    color = Color.White,
-                                    fontSize = 15.5.sp,
-                                    fontFamily = LiterarySerifFontFamily
-                                ),
-                                cursorBrush = androidx.compose.ui.graphics.SolidColor(Color(0xFFE9D5FF)),
-                                maxLines = 3,
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .testTag("chat_input_field")
-                            )
-                        }
-
-                        // 6.3 Sağ İç Ataş (📎) Butonu Hit-Box (x = 71.2%..80.0%)
-                        Box(
-                            modifier = Modifier
-                                .offset(x = w * 0.712f, y = h * 0.14f)
-                                .size(width = w * 0.088f, height = h * 0.72f)
-                                .clip(CircleShape)
-                                .clickable(
-                                    interactionSource = remember { MutableInteractionSource() },
-                                    indication = null
-                                ) {
-                                    showBackgroundPicker = true
-                                }
-                        )
-
-                        // 6.4 Sağ Gönder (➤) Butonu Hit-Box (x = 83.5%..97.5%)
-                        Box(
-                            modifier = Modifier
-                                .offset(x = w * 0.835f, y = h * 0.06f)
-                                .size(width = w * 0.140f, height = h * 0.88f)
-                                .clip(CircleShape)
-                                .clickable(
-                                    enabled = !isSending,
-                                    interactionSource = remember { MutableInteractionSource() },
-                                    indication = null
-                                ) {
-                                    val text = inputText.trim()
-                                    if (text.isNotBlank()) {
-                                        inputText = ""
-                                        onSendMessage(text)
-                                    } else {
-                                        if (onContinueScene != null) onContinueScene()
-                                        else viewModel.continueStoryScene()
-                                    }
-                                }
-                                .testTag("send_message_button")
-                        )
-                    }
                 }
             }
     ) { innerPadding ->
+        val topInsetPadding = innerPadding.calculateTopPadding()
+        val bottomInsetPadding = innerPadding.calculateBottomPadding()
+
         Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(innerPadding)
+            modifier = Modifier.fillMaxSize()
         ) {
             Column(
                 modifier = Modifier.fillMaxSize()
@@ -1994,6 +2339,7 @@ fun ChatScreen(
                 errorMessage?.let { err ->
                     androidx.compose.animation.AnimatedVisibility(
                         visible = true,
+                        modifier = Modifier.padding(top = topInsetPadding),
                         enter = androidx.compose.animation.slideInVertically(
                             animationSpec = tween(280, easing = FastOutSlowInEasing)
                         ) { -it } + fadeIn(tween(200)),
@@ -2008,7 +2354,7 @@ fun ChatScreen(
                                 .clip(RoundedCornerShape(14.dp))
                                 .background(
                                     Brush.linearGradient(
-                                        listOf(Color(0xFF3D1018), Color(0xFF1F0A10))
+                                        listOf(Color(0xCC3D1018), Color(0xCC1F0A10))
                                     )
                                 )
                                 .border(
@@ -2095,15 +2441,47 @@ fun ChatScreen(
                     }
                 }
 
+                // Message region with smooth feathered top & bottom alpha dissolve so it never looks harshly cut off at the top/bottom bars!
                 LazyColumn(
                     state = listState,
+                    contentPadding = PaddingValues(
+                        top = (topInsetPadding + 6.dp).coerceAtLeast(88.dp),
+                        bottom = (bottomInsetPadding + 14.dp).coerceAtLeast(144.dp)
+                    ),
                     modifier = Modifier
                         .fillMaxWidth()
                         .weight(1f)
-                        .padding(horizontal = 0.dp, vertical = 6.dp),
-                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                        .graphicsLayer {
+                            compositingStrategy = androidx.compose.ui.graphics.CompositingStrategy.Offscreen
+                        }
+                        .drawWithContent {
+                            drawContent()
+                            val h = size.height
+                            if (h > 1f) {
+                                val topFadeStart = (topInsetPadding.toPx() - 26.dp.toPx()).coerceAtLeast(0f)
+                                val topFadeEnd = (topInsetPadding.toPx() + 18.dp.toPx()).coerceAtMost(h * 0.25f)
+                                val topFadeMid = (topFadeStart + topFadeEnd) * 0.5f
+                                val botFadeStart = (h - bottomInsetPadding.toPx() - 18.dp.toPx()).coerceAtLeast(h * 0.65f)
+                                val botFadeEnd = (h - bottomInsetPadding.toPx() + 26.dp.toPx()).coerceAtMost(h)
+                                val botFadeMid = (botFadeStart + botFadeEnd) * 0.5f
+                                drawRect(
+                                    brush = Brush.verticalGradient(
+                                        0.0f to Color.Transparent,
+                                        (topFadeStart / h).coerceIn(0.01f, 0.18f) to Color.Black.copy(alpha = 0.14f),
+                                        (topFadeMid / h).coerceIn(0.02f, 0.22f) to Color.Black.copy(alpha = 0.62f),
+                                        (topFadeEnd / h).coerceIn(0.04f, 0.28f) to Color.Black,
+                                        (botFadeStart / h).coerceIn(0.68f, 0.94f) to Color.Black,
+                                        (botFadeMid / h).coerceIn(0.72f, 0.96f) to Color.Black.copy(alpha = 0.62f),
+                                        (botFadeEnd / h).coerceIn(0.75f, 0.99f) to Color.Black.copy(alpha = 0.12f),
+                                        1.0f to Color.Transparent
+                                    ),
+                                    blendMode = androidx.compose.ui.graphics.BlendMode.DstIn
+                                )
+                            }
+                        },
+                    verticalArrangement = Arrangement.spacedBy(14.dp)
                 ) {
-                    itemsIndexed(validMessages, key = { _, msg -> msg.id }) { idx, msg ->
+                    itemsIndexed(validMessages, key = { _, msg -> msg.id }) { _, msg ->
                         val isUser = msg.role == "user"
 
                         val timeFormatted = remember(msg.timestamp) {
@@ -2119,16 +2497,17 @@ fun ChatScreen(
                                     .fillMaxWidth()
                                     .padding(horizontal = 14.dp, vertical = 4.dp)
                                     .clip(RoundedCornerShape(18.dp))
+                                    .aetheriaBackdropBlur(rootSize, blurredBgBitmap, alpha = 0.28f)
                                     .background(
                                         Brush.linearGradient(
-                                            listOf(Color(0xFF140B30), Color(0xFF0C071E))
+                                            listOf(Color(0x991C0B3B), Color(0x99100624))
                                         )
                                     )
                                     .border(
                                         BorderStroke(
                                             1.5.dp,
                                             Brush.linearGradient(
-                                                listOf(Color(0xFF9333EA), Color(0xFF6D28D9), Color(0xFF4C1D95))
+                                                listOf(Color(0xFFD8B4FE), Color(0xFF9333EA), Color(0xFF6D28D9))
                                             )
                                         ),
                                         RoundedCornerShape(18.dp)
@@ -2211,202 +2590,242 @@ fun ChatScreen(
                                 }
                             }
                         } else if (isUser) {
-                            // ── SECTION 3.1: SAĞ HİZALI KULLANICI MESAJ BALONU (3-Slice 1:1 Reference Plate — Never Stretches Corners) ──
+                            // ── SECTION 3.1: SAĞ HİZALI KULLANICI MESAJ BALONU (TRUE TRANSLUCENT MOR CAM GLASS) ──
+                            val userBubbleShape = RoundedCornerShape(
+                                topStart = 22.dp,
+                                topEnd = 22.dp,
+                                bottomStart = 22.dp,
+                                bottomEnd = 18.dp
+                            )
+                            val userInteraction = remember { MutableInteractionSource() }
+                            val isUserPressed by userInteraction.collectIsPressedAsState()
+                            val userScale by animateFloatAsState(
+                                targetValue = if (isUserPressed) 0.985f else 1f,
+                                animationSpec = spring(stiffness = Spring.StiffnessMediumLow),
+                                label = "userBubbleScale_${msg.id}"
+                            )
+                            var showSecondaryUserActions by remember(msg.id) { mutableStateOf(false) }
+                            val userPillsScrollState = rememberScrollState()
+
+                            LaunchedEffect(showSecondaryUserActions) {
+                                if (showSecondaryUserActions) {
+                                    kotlinx.coroutines.delay(60)
+                                    userPillsScrollState.animateScrollTo(260)
+                                }
+                            }
+
                             Column(
                                 modifier = Modifier
                                     .fillMaxWidth()
-                                    .padding(vertical = 2.dp)
+                                    .padding(horizontal = 14.dp, vertical = 2.dp),
+                                horizontalAlignment = Alignment.End
                             ) {
-                                BoxWithConstraints(
-                                    modifier = Modifier.fillMaxWidth()
-                                ) {
-                                    val w = maxWidth
-                                    val minUserHeight = w * (112f / 841f)
-
-                                    Box(
-                                        modifier = Modifier
-                                            .fillMaxWidth()
-                                            .heightIn(min = minUserHeight)
-                                            .clickable(
-                                                interactionSource = remember { MutableInteractionSource() },
-                                                indication = null
-                                            ) {
-                                                expandedUserMenuMessageId = if (expandedUserMenuMessageId == msg.id) null else msg.id
-                                            }
-                                    ) {
-                                        // 3-Slice Reference User Bubble Background (Top Cap + Stretchable Mid + Bottom Cap)
-                                        Column(
-                                            modifier = Modifier.matchParentSize()
-                                        ) {
-                                            androidx.compose.foundation.Image(
-                                                painter = androidx.compose.ui.res.painterResource(id = com.example.R.drawable.img_chat_ref_user_top),
-                                                contentDescription = null,
-                                                contentScale = androidx.compose.ui.layout.ContentScale.FillWidth,
-                                                modifier = Modifier
-                                                    .fillMaxWidth()
-                                                    .aspectRatio(841f / 52f)
-                                            )
-                                            androidx.compose.foundation.Image(
-                                                painter = androidx.compose.ui.res.painterResource(id = com.example.R.drawable.img_chat_ref_user_mid),
-                                                contentDescription = null,
-                                                contentScale = androidx.compose.ui.layout.ContentScale.FillBounds,
-                                                modifier = Modifier
-                                                    .fillMaxWidth()
-                                                    .weight(1f)
-                                            )
-                                            androidx.compose.foundation.Image(
-                                                painter = androidx.compose.ui.res.painterResource(id = com.example.R.drawable.img_chat_ref_user_bottom),
-                                                contentDescription = null,
-                                                contentScale = androidx.compose.ui.layout.ContentScale.FillWidth,
-                                                modifier = Modifier
-                                                    .fillMaxWidth()
-                                                    .aspectRatio(841f / 52f)
-                                            )
+                                Box(
+                                    modifier = Modifier
+                                        .fillMaxWidth(0.79f)
+                                        .graphicsLayer {
+                                            scaleX = userScale
+                                            scaleY = userScale
                                         }
-
-                                        Column(
-                                            modifier = Modifier
-                                                .fillMaxWidth()
-                                                .padding(
-                                                    start = w * 0.244f,
-                                                    end = w * 0.068f,
-                                                    top = w * 0.038f,
-                                                    bottom = w * 0.026f
+                                        .morCamOuterGlow(
+                                            cornerRadius = 22.dp,
+                                            shadowAlpha = 0.38f,
+                                            rimGlowAlpha = if (isUserPressed) 0.50f else 0.28f,
+                                            bottomFlareAlpha = 0.48f
+                                        )
+                                        .clip(userBubbleShape)
+                                        .aetheriaBackdropBlur(rootSize, blurredBgBitmap, alpha = 0.90f)
+                                        .background(
+                                            Brush.linearGradient(
+                                                colors = listOf(
+                                                    Color(0x7A6D27CF),
+                                                    Color(0x6C45148C),
+                                                    Color(0x78561CA6)
                                                 )
-                                        ) {
-                                            Text(
-                                                text = formatNarrativeText(cleanCopyText(msg.text)),
-                                                color = Color.White.copy(alpha = 0.96f),
-                                                fontSize = 15.5.sp,
-                                                lineHeight = 23.5.sp,
-                                                letterSpacing = 0.12.sp,
-                                                fontFamily = LiterarySerifFontFamily,
-                                                style = TextStyle(
-                                                    shadow = Shadow(
-                                                        color = Color(0x66120524),
-                                                        offset = Offset(0f, 1f),
-                                                        blurRadius = 3f
+                                            )
+                                        )
+                                        .border(
+                                            BorderStroke(
+                                                0.9.dp,
+                                                Brush.linearGradient(
+                                                    listOf(
+                                                        Color(0xCCE9D5FF),
+                                                        Color(0x66A855F7),
+                                                        Color(0xD8F3E8FF)
                                                     )
                                                 )
-                                            )
-                                            Spacer(modifier = Modifier.height(4.dp))
-                                            Row(
-                                                modifier = Modifier.align(Alignment.End),
-                                                verticalAlignment = Alignment.CenterVertically
-                                            ) {
-                                                Text(
-                                                    text = timeFormatted.ifBlank { "22:47" },
-                                                    color = Color(0xE6E9D5FF),
-                                                    fontSize = 11.5.sp,
-                                                    fontWeight = FontWeight.Normal,
-                                                    fontFamily = InterFontFamily
-                                                )
-                                                Spacer(modifier = Modifier.width(4.dp))
-                                                DoubleCheckmarkIcon(tint = Color(0xE6E9D5FF))
+                                            ),
+                                            userBubbleShape
+                                        )
+                                        .morCamTopAndBottomSpecular(
+                                            cornerRadius = 22.dp,
+                                            topSheenAlpha = 0.26f,
+                                            bottomFlareAlpha = 0.82f
+                                        )
+                                        .combinedClickable(
+                                            interactionSource = userInteraction,
+                                            indication = null,
+                                            onClick = {
+                                                if (reactionPickerMessageId != null) {
+                                                    reactionPickerMessageId = null
+                                                } else {
+                                                    val willOpen = expandedUserMenuMessageId != msg.id
+                                                    expandedUserMenuMessageId = if (willOpen) msg.id else null
+                                                    if (!willOpen) showSecondaryUserActions = false
+                                                }
+                                            },
+                                            onLongClick = {
+                                                expandedUserMenuMessageId = null
+                                                expandedMenuMessageId = null
+                                                reactionPickerMessageId = if (reactionPickerMessageId == msg.id) null else msg.id
                                             }
+                                        )
+                                        .padding(horizontal = 18.dp, vertical = 12.dp)
+                                ) {
+                                    Column(
+                                        modifier = Modifier.fillMaxWidth()
+                                    ) {
+                                        Text(
+                                            text = formatNarrativeText(cleanCopyText(msg.text)),
+                                            color = Color.White.copy(alpha = 0.97f),
+                                            fontSize = 15.5.sp,
+                                            lineHeight = 23.sp,
+                                            letterSpacing = 0.12.sp,
+                                            fontFamily = LiterarySerifFontFamily,
+                                            style = TextStyle(
+                                                shadow = Shadow(
+                                                    color = Color(0x77120524),
+                                                    offset = Offset(0f, 1f),
+                                                    blurRadius = 3f
+                                                )
+                                            )
+                                        )
+                                        Spacer(modifier = Modifier.height(4.dp))
+                                        Row(
+                                            modifier = Modifier.align(Alignment.End),
+                                            verticalAlignment = Alignment.CenterVertically
+                                        ) {
+                                            Text(
+                                                text = timeFormatted.ifBlank { "22:47" },
+                                                color = Color(0xE6E9D5FF),
+                                                fontSize = 11.5.sp,
+                                                fontWeight = FontWeight.Normal,
+                                                fontFamily = InterFontFamily
+                                            )
+                                            Spacer(modifier = Modifier.width(4.dp))
+                                            DoubleCheckmarkIcon(tint = Color(0xE6E9D5FF))
                                         }
                                     }
                                 }
 
-                                // ── User Message Action Capsules (ONLY shown when user taps the message) ──
+                                // ── User Message Action Capsules (Single Horizontal Row — Diğer expands to the right!) ──
                                 androidx.compose.animation.AnimatedVisibility(
-                                    visible = expandedUserMenuMessageId == msg.id,
+                                    visible = expandedUserMenuMessageId == msg.id && reactionPickerMessageId == null,
                                     enter = fadeIn(tween(180)) + expandVertically(tween(180)),
                                     exit = fadeOut(tween(140)) + shrinkVertically(tween(140))
                                 ) {
-                                    Column(
+                                    Row(
                                         modifier = Modifier
                                             .fillMaxWidth()
-                                            .padding(top = 4.dp, bottom = 2.dp)
+                                            .horizontalScroll(userPillsScrollState)
+                                            .padding(top = 8.dp, bottom = 2.dp),
+                                        horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.End),
+                                        verticalAlignment = Alignment.CenterVertically
                                     ) {
-                                        BoxWithConstraints(
-                                            modifier = Modifier
-                                                .fillMaxWidth()
-                                                .aspectRatio(841f / 98f)
+                                        @Composable
+                                        fun UserGlassActionPill(
+                                            iconType: String? = null,
+                                            label: String,
+                                            isDanger: Boolean = false,
+                                            isActive: Boolean = false,
+                                            onClick: () -> Unit
                                         ) {
-                                            val pw = maxWidth
-                                            val ph = maxHeight
-                                            androidx.compose.foundation.Image(
-                                                painter = androidx.compose.ui.res.painterResource(id = com.example.R.drawable.img_chat_ref_pills_row),
-                                                contentDescription = "Kopyala, Devam Et, Diğer",
-                                                contentScale = androidx.compose.ui.layout.ContentScale.FillBounds,
-                                                modifier = Modifier.fillMaxSize()
-                                            )
-                                            // Kopyala (x = 4.5%..31.0%)
-                                            Box(
+                                            Row(
                                                 modifier = Modifier
-                                                    .offset(x = pw * 0.045f, y = ph * 0.08f)
-                                                    .size(width = pw * 0.265f, height = ph * 0.84f)
+                                                    .height(39.dp)
+                                                    .morCamOuterGlow(cornerRadius = 20.dp, shadowAlpha = 0.32f, rimGlowAlpha = 0.24f, bottomFlareAlpha = 0.44f)
                                                     .clip(RoundedCornerShape(50))
-                                                    .clickable(interactionSource = remember { MutableInteractionSource() }, indication = null) {
-                                                        val cleanText = cleanCopyText(msg.text)
-                                                        clipboardManager.setText(AnnotatedString(cleanText))
-                                                        android.widget.Toast.makeText(context, "Kopyalandı", android.widget.Toast.LENGTH_SHORT).show()
-                                                    }
-                                            )
-                                            // Devam Et (x = 33.0%..59.5%)
-                                            Box(
-                                                modifier = Modifier
-                                                    .offset(x = pw * 0.330f, y = ph * 0.08f)
-                                                    .size(width = pw * 0.265f, height = ph * 0.84f)
-                                                    .clip(RoundedCornerShape(50))
-                                                    .clickable(interactionSource = remember { MutableInteractionSource() }, indication = null) {
-                                                        if (!isSending) {
-                                                            if (onContinueScene != null) onContinueScene()
-                                                            else viewModel.continueStoryScene()
+                                                    .aetheriaBackdropBlur(rootSize, blurredBgBitmap, alpha = 0.92f)
+                                                    .background(
+                                                        when {
+                                                            isDanger -> Brush.verticalGradient(listOf(Color(0x664A1120), Color(0x762A0812)))
+                                                            isActive -> Brush.verticalGradient(listOf(Color(0x665B21B6), Color(0x723B1378)))
+                                                            else -> Brush.verticalGradient(listOf(Color(0x5632185A), Color(0x7016092B)))
                                                         }
-                                                    }
-                                            )
-                                            // Diğer (x = 61.5%..84.0%)
-                                            Box(
-                                                modifier = Modifier
-                                                    .offset(x = pw * 0.615f, y = ph * 0.08f)
-                                                    .size(width = pw * 0.225f, height = ph * 0.84f)
-                                                    .clip(RoundedCornerShape(50))
-                                                    .clickable(interactionSource = remember { MutableInteractionSource() }, indication = null) {
-                                                        expandedMenuMessageId = if (expandedMenuMessageId == msg.id) null else msg.id
-                                                    }
-                                            )
+                                                    )
+                                                    .border(
+                                                        BorderStroke(
+                                                            0.85.dp,
+                                                            if (isDanger) Color(0xAAF87171) else Color(0xBCE9D5FF)
+                                                        ),
+                                                        RoundedCornerShape(50)
+                                                    )
+                                                    .morCamTopAndBottomSpecular(cornerRadius = 20.dp, topSheenAlpha = 0.24f, bottomFlareAlpha = 0.80f)
+                                                    .clickable { onClick() }
+                                                    .padding(start = if (iconType != null) 7.dp else 14.dp, end = 14.dp),
+                                                verticalAlignment = Alignment.CenterVertically,
+                                                horizontalArrangement = Arrangement.spacedBy(7.dp)
+                                            ) {
+                                                if (iconType != null) {
+                                                    GlassPillIconBadge(type = iconType, modifier = Modifier.size(24.dp))
+                                                }
+                                                Text(
+                                                    text = label,
+                                                    color = if (isDanger) Color(0xFFFCA5A5) else Color(0xFFFBF8FF),
+                                                    fontSize = 12.5.sp,
+                                                    fontFamily = LiterarySerifFontFamily
+                                                )
+                                            }
                                         }
 
-                                        if (expandedMenuMessageId == msg.id) {
+                                        UserGlassActionPill(iconType = "copy", label = "Kopyala") {
+                                            val cleanText = cleanCopyText(msg.text)
+                                            clipboardManager.setText(AnnotatedString(cleanText))
+                                            android.widget.Toast.makeText(context, "Kopyalandı", android.widget.Toast.LENGTH_SHORT).show()
+                                        }
+
+                                        UserGlassActionPill(iconType = "continue", label = "Devam Et") {
+                                            if (!isSending) {
+                                                expandedUserMenuMessageId = null
+                                                if (onContinueScene != null) onContinueScene()
+                                                else viewModel.continueStoryScene()
+                                            }
+                                        }
+
+                                        UserGlassActionPill(
+                                            iconType = "more",
+                                            label = "Diğer",
+                                            isActive = showSecondaryUserActions
+                                        ) {
+                                            showSecondaryUserActions = !showSecondaryUserActions
+                                        }
+
+                                        // Secondary options expand HORIZONTALLY to the right on the exact same row!
+                                        androidx.compose.animation.AnimatedVisibility(
+                                            visible = showSecondaryUserActions,
+                                            enter = androidx.compose.animation.fadeIn(tween(180)) +
+                                                androidx.compose.animation.expandHorizontally(tween(220, easing = FastOutSlowInEasing)),
+                                            exit = androidx.compose.animation.fadeOut(tween(140)) +
+                                                androidx.compose.animation.shrinkHorizontally(tween(180))
+                                        ) {
                                             Row(
                                                 horizontalArrangement = Arrangement.spacedBy(8.dp),
-                                                verticalAlignment = Alignment.CenterVertically,
-                                                modifier = Modifier
-                                                    .fillMaxWidth()
-                                                    .padding(horizontal = 12.dp, vertical = 6.dp)
+                                                verticalAlignment = Alignment.CenterVertically
                                             ) {
-                                                @Composable
-                                                fun MiniActionPill(label: String, isDanger: Boolean = false, onClick: () -> Unit) {
-                                                    Box(
-                                                        modifier = Modifier
-                                                            .height(36.dp)
-                                                            .clip(RoundedCornerShape(50))
-                                                            .background(if (isDanger) Color(0x883B0D16) else Color(0x80231240))
-                                                            .border(1.dp, if (isDanger) Color(0x99F87171) else Color(0x99E9D5FF), RoundedCornerShape(50))
-                                                            .clickable { onClick() }
-                                                            .padding(horizontal = 14.dp),
-                                                        contentAlignment = Alignment.Center
-                                                    ) {
-                                                        Text(
-                                                            text = label,
-                                                            color = if (isDanger) Color(0xFFFCA5A5) else Color.White,
-                                                            fontSize = 12.sp,
-                                                            fontFamily = LiterarySerifFontFamily
-                                                        )
-                                                    }
-                                                }
-                                                MiniActionPill("✏️ Düzenle") {
+                                                UserGlassActionPill(label = "✏️ Düzenle") {
                                                     editingMessageId = msg.id
                                                     editingText = msg.text
-                                                    expandedMenuMessageId = null
+                                                    expandedUserMenuMessageId = null
+                                                    showSecondaryUserActions = false
                                                 }
-                                                MiniActionPill("⏪ Buraya Sar") {
+                                                UserGlassActionPill(label = "⏪ Buraya Sar") {
                                                     rewindTargetMessageId = msg.id
+                                                    expandedUserMenuMessageId = null
+                                                    showSecondaryUserActions = false
                                                 }
-                                                MiniActionPill("🗑️ Sil", isDanger = true) {
-                                                    expandedMenuMessageId = null
+                                                UserGlassActionPill(label = "🗑️ Sil", isDanger = true) {
+                                                    expandedUserMenuMessageId = null
+                                                    showSecondaryUserActions = false
                                                     onDeleteMessage(msg.id)
                                                 }
                                             }
@@ -2415,7 +2834,7 @@ fun ChatScreen(
                                 }
                             }
                         } else {
-                            // ── SECTION 3.2: SOL HİZALI BOT / HİKAYE MESAJ BALONLARI (3-Slice 1:1 Reference Plate — Never Stretches 'A' Badge or Top Star!) ──
+                            // ── SECTION 3.2: SOL HİZALI BOT / HİKAYE MESAJ BALONLARI (TRUE TRANSLUCENT MOR CAM GLASS & ZERO WHITE BOX ON LONG-PRESS!) ──
                             val isThisStreaming = streamingMsgId == msg.id
                             val displayText = if (isThisStreaming && streamingText != null) streamingText else msg.text
 
@@ -2435,114 +2854,136 @@ fun ChatScreen(
                                 )
                             }
 
+                            val botBubbleShape = RoundedCornerShape(24.dp)
+                            val botBubbleInteraction = remember { MutableInteractionSource() }
+                            val isBotBubblePressed by botBubbleInteraction.collectIsPressedAsState()
+                            val isReactionActiveOnThis = reactionPickerMessageId == msg.id
+                            val botBubbleScale by animateFloatAsState(
+                                targetValue = when {
+                                    isBotBubblePressed -> 0.985f
+                                    isReactionActiveOnThis -> 1.01f
+                                    else -> 1f
+                                },
+                                animationSpec = spring(stiffness = Spring.StiffnessMediumLow),
+                                label = "botBubbleScale_${msg.id}"
+                            )
+
+                            var showSecondaryAiActions by remember(msg.id) { mutableStateOf(false) }
+                            val aiPillsScrollState = rememberScrollState()
+
+                            LaunchedEffect(showSecondaryAiActions) {
+                                if (showSecondaryAiActions) {
+                                    kotlinx.coroutines.delay(60)
+                                    aiPillsScrollState.animateScrollTo(320)
+                                }
+                            }
+
                             Column(
                                 modifier = Modifier
                                     .fillMaxWidth()
-                                    .padding(vertical = 2.dp)
+                                    .padding(horizontal = 12.dp, vertical = 2.dp)
                             ) {
-                                BoxWithConstraints(
-                                    modifier = Modifier.fillMaxWidth()
+                                Box(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(end = 4.dp)
                                 ) {
-                                    val w = maxWidth
-                                    val minBotHeight = w * (190f / 841f)
-
+                                    // True Translucent Glass Bubble Body (Clipped & No White Ripple Box!)
                                     Box(
                                         modifier = Modifier
                                             .fillMaxWidth()
-                                            .heightIn(min = minBotHeight)
+                                            .padding(start = 25.dp, top = 8.dp)
+                                            .graphicsLayer {
+                                                scaleX = botBubbleScale
+                                                scaleY = botBubbleScale
+                                            }
+                                            .morCamOuterGlow(
+                                                cornerRadius = 22.dp,
+                                                shadowAlpha = 0.40f,
+                                                rimGlowAlpha = if (isBotBubblePressed || isReactionActiveOnThis) 0.48f else 0.24f,
+                                                bottomFlareAlpha = 0.46f
+                                            )
+                                            .clip(RoundedCornerShape(22.dp))
+                                            .aetheriaBackdropBlur(rootSize, blurredBgBitmap, alpha = 0.95f)
+                                            .background(
+                                                Brush.verticalGradient(
+                                                    colors = listOf(
+                                                        Color(0x38886CB0),
+                                                        Color(0x4C3B2358),
+                                                        Color(0x60201038)
+                                                    )
+                                                )
+                                            )
+                                            .background(
+                                                Brush.linearGradient(
+                                                    colors = listOf(
+                                                        Color(0x22F3E8FF),
+                                                        Color(0x0AD8B4FE),
+                                                        Color.Transparent
+                                                    ),
+                                                    start = Offset.Zero,
+                                                    end = Offset(420f, 260f)
+                                                )
+                                            )
+                                            .border(
+                                                BorderStroke(
+                                                    if (isReactionActiveOnThis) 1.35.dp else 0.85.dp,
+                                                    Brush.linearGradient(
+                                                        listOf(
+                                                            Color(0xCCE9D5FF),
+                                                            Color(0x529333EA),
+                                                            Color(0xD0E9D5FF)
+                                                        )
+                                                    )
+                                                ),
+                                                RoundedCornerShape(22.dp)
+                                            )
+                                            .morCamTopAndBottomSpecular(
+                                                cornerRadius = 22.dp,
+                                                topSheenAlpha = 0.26f,
+                                                bottomFlareAlpha = 0.84f
+                                            )
                                             .combinedClickable(
+                                                interactionSource = botBubbleInteraction,
+                                                indication = null,
                                                 onClick = {
-                                                    expandedMenuMessageId = if (expandedMenuMessageId == msg.id) null else msg.id
+                                                    // CRITICAL GUARD: When reaction picker is open, tapping NEVER opens Kopyala/Devam Et/Diğer!
+                                                    if (reactionPickerMessageId != null) {
+                                                        reactionPickerMessageId = null
+                                                    } else {
+                                                        val willOpen = expandedMenuMessageId != msg.id
+                                                        expandedMenuMessageId = if (willOpen) msg.id else null
+                                                        if (!willOpen) showSecondaryAiActions = false
+                                                    }
                                                 },
                                                 onLongClick = {
+                                                    // Close action menus when opening reaction picker
+                                                    expandedMenuMessageId = null
+                                                    expandedUserMenuMessageId = null
+                                                    showSecondaryAiActions = false
                                                     reactionPickerMessageId = if (reactionPickerMessageId == msg.id) null else msg.id
                                                 }
                                             )
+                                            .padding(
+                                                start = 28.dp,
+                                                end = 16.dp,
+                                                top = 15.dp,
+                                                bottom = 12.dp
+                                            )
                                     ) {
-                                        // 3-Slice Reference Bot Bubble Plate (Alternates between Bot Bubble 2 and Bot Bubble 3 from reference image)
-                                        val useBot3Plate = (idx % 2 == 1)
-                                        val botTopRes = if (avatarInitial == "A") {
-                                            if (useBot3Plate) com.example.R.drawable.img_chat_ref_bot3_top else com.example.R.drawable.img_chat_ref_bot_top
-                                        } else {
-                                            if (useBot3Plate) com.example.R.drawable.img_chat_ref_bot3_top_noletter else com.example.R.drawable.img_chat_ref_bot_top_noletter
-                                        }
-                                        val botMidRes = if (useBot3Plate) com.example.R.drawable.img_chat_ref_bot3_mid else com.example.R.drawable.img_chat_ref_bot_mid
-                                        val botBottomRes = if (useBot3Plate) com.example.R.drawable.img_chat_ref_bot3_bottom else com.example.R.drawable.img_chat_ref_bot_bottom
-
                                         Column(
-                                            modifier = Modifier.matchParentSize()
-                                        ) {
-                                            androidx.compose.foundation.Image(
-                                                painter = androidx.compose.ui.res.painterResource(id = botTopRes),
-                                                contentDescription = null,
-                                                contentScale = androidx.compose.ui.layout.ContentScale.FillWidth,
-                                                modifier = Modifier
-                                                    .fillMaxWidth()
-                                                    .aspectRatio(841f / 116f)
-                                            )
-                                            androidx.compose.foundation.Image(
-                                                painter = androidx.compose.ui.res.painterResource(id = botMidRes),
-                                                contentDescription = null,
-                                                contentScale = androidx.compose.ui.layout.ContentScale.FillBounds,
-                                                modifier = Modifier
-                                                    .fillMaxWidth()
-                                                    .weight(1f)
-                                            )
-                                            androidx.compose.foundation.Image(
-                                                painter = androidx.compose.ui.res.painterResource(id = botBottomRes),
-                                                contentDescription = null,
-                                                contentScale = androidx.compose.ui.layout.ContentScale.FillWidth,
-                                                modifier = Modifier
-                                                    .fillMaxWidth()
-                                                    .aspectRatio(841f / 64f)
-                                            )
-                                        }
-
-                                        // Dynamic initial letter inside the top-left circular cosmic badge if initial != "A"
-                                        if (avatarInitial != "A") {
-                                            Box(
-                                                modifier = Modifier
-                                                    .offset(x = w * (37f / 841f), y = w * (23f / 841f))
-                                                    .size(w * (68f / 841f)),
-                                                contentAlignment = Alignment.Center
-                                            ) {
-                                                Text(
-                                                    text = avatarInitial,
-                                                    color = Color.White,
-                                                    fontSize = 20.sp,
-                                                    fontWeight = FontWeight.Normal,
-                                                    fontFamily = LiterarySerifFontFamily,
-                                                    style = TextStyle(
-                                                        shadow = Shadow(
-                                                            color = Color(0xFFD8B4FE),
-                                                            offset = Offset(0f, 0f),
-                                                            blurRadius = 10f
-                                                        )
-                                                    )
-                                                )
-                                            }
-                                        }
-
-                                        Column(
-                                            modifier = Modifier
-                                                .fillMaxWidth()
-                                                .padding(
-                                                    start = w * 0.192f,
-                                                    end = w * 0.108f,
-                                                    top = w * 0.068f,
-                                                    bottom = w * 0.038f
-                                                )
+                                            modifier = Modifier.fillMaxWidth()
                                         ) {
                                             Text(
                                                 text = formatNarrativeText(displayText + if (isThisStreaming && cursorAlpha > 0.5f) "▌" else ""),
-                                                color = Color.White.copy(alpha = 0.96f),
+                                                color = Color.White.copy(alpha = 0.97f),
                                                 fontSize = 15.5.sp,
                                                 lineHeight = 23.5.sp,
                                                 letterSpacing = 0.12.sp,
                                                 fontFamily = LiterarySerifFontFamily,
                                                 style = TextStyle(
                                                     shadow = Shadow(
-                                                        color = Color(0x66120524),
+                                                        color = Color(0x77120524),
                                                         offset = Offset(0f, 1f),
                                                         blurRadius = 3f
                                                     )
@@ -2552,166 +2993,216 @@ fun ChatScreen(
                                             Spacer(modifier = Modifier.height(6.dp))
 
                                             Row(
-                                                modifier = Modifier
-                                                    .align(Alignment.End)
-                                                    .clickable {
-                                                        if (isSpeaking) onStopSpeaking() else onSpeakText?.invoke(msg.text)
-                                                    },
+                                                modifier = Modifier.fillMaxWidth(),
+                                                horizontalArrangement = Arrangement.SpaceBetween,
                                                 verticalAlignment = Alignment.CenterVertically
                                             ) {
-                                                Text(
-                                                    text = timeFormatted.ifBlank { "22:50" },
-                                                    color = Color(0xE6E9D5FF),
-                                                    fontSize = 11.5.sp,
-                                                    fontWeight = FontWeight.Normal,
-                                                    fontFamily = InterFontFamily
-                                                )
-                                                Spacer(modifier = Modifier.width(4.dp))
-                                                if (isSpeaking) {
-                                                    Text(
-                                                        text = "🔊",
-                                                        color = Color(0xFFE879F9),
-                                                        fontSize = 11.5.sp
-                                                    )
+                                                // Active reaction badge if user reacted to this message
+                                                if (msg.reaction.isNotBlank()) {
+                                                    Box(
+                                                        modifier = Modifier
+                                                            .clip(RoundedCornerShape(50))
+                                                            .background(Color(0x553B1568))
+                                                            .border(0.9.dp, Color(0xBBE9D5FF), RoundedCornerShape(50))
+                                                            .clickable(
+                                                                interactionSource = remember { MutableInteractionSource() },
+                                                                indication = null
+                                                            ) {
+                                                                viewModel.setMessageReaction(msg.id, "")
+                                                            }
+                                                            .padding(horizontal = 8.dp, vertical = 2.dp),
+                                                        contentAlignment = Alignment.Center
+                                                    ) {
+                                                        Text(text = msg.reaction, fontSize = 13.sp)
+                                                    }
                                                 } else {
-                                                    DoubleCheckmarkIcon(tint = Color(0xE6E9D5FF))
+                                                    Spacer(modifier = Modifier.width(1.dp))
+                                                }
+
+                                                Row(
+                                                    modifier = Modifier
+                                                        .clickable(
+                                                            interactionSource = remember { MutableInteractionSource() },
+                                                            indication = null
+                                                        ) {
+                                                            if (isSpeaking) onStopSpeaking() else onSpeakText?.invoke(msg.text)
+                                                        },
+                                                    verticalAlignment = Alignment.CenterVertically
+                                                ) {
+                                                    Text(
+                                                        text = timeFormatted.ifBlank { "22:50" },
+                                                        color = Color(0xE6E9D5FF),
+                                                        fontSize = 11.5.sp,
+                                                        fontWeight = FontWeight.Normal,
+                                                        fontFamily = InterFontFamily
+                                                    )
+                                                    Spacer(modifier = Modifier.width(4.dp))
+                                                    if (isSpeaking) {
+                                                        Text(
+                                                            text = "🔊",
+                                                            color = Color(0xFFE879F9),
+                                                            fontSize = 11.5.sp
+                                                        )
+                                                    } else {
+                                                        DoubleCheckmarkIcon(tint = Color(0xE6E9D5FF))
+                                                    }
                                                 }
                                             }
                                         }
                                     }
+
+                                    // Razor-sharp 4-point glowing star (✦) on the top border of the bot bubble
+                                    TopBorderGlowingStar(
+                                        modifier = Modifier
+                                            .align(Alignment.TopCenter)
+                                            .offset(x = 12.dp, y = (-4).dp)
+                                            .zIndex(15f)
+                                    )
+
+                                    // Cosmic Sigil Avatar overlapping top-left corner of the bot bubble
+                                    AidenMagicSigilAvatar(
+                                        totalSize = 46.dp,
+                                        contentDescription = displayName,
+                                        initial = avatarInitial,
+                                        modifier = Modifier
+                                            .align(Alignment.TopStart)
+                                            .offset(x = (-2).dp, y = (-4).dp)
+                                            .zIndex(20f)
+                                    )
                                 }
 
-                                // ── SECTION 4: MESAJ ALTI AKSİYON KAPSÜLLERİ (ONLY shown when user taps the bot message!) ──
-                                val showAiPills = expandedMenuMessageId == msg.id
+                                // ── SECTION 4: MESAJ ALTI AKSİYON KAPSÜLLERİ (Single Horizontal Row — Diğer expands to the right, hidden when reaction picker is open!) ──
+                                val showAiPills = expandedMenuMessageId == msg.id && reactionPickerMessageId == null
 
                                 androidx.compose.animation.AnimatedVisibility(
                                     visible = showAiPills,
                                     enter = fadeIn(tween(180)) + expandVertically(tween(180)),
                                     exit = fadeOut(tween(140)) + shrinkVertically(tween(140))
                                 ) {
-                                    Column(
+                                    Row(
                                         modifier = Modifier
                                             .fillMaxWidth()
-                                            .padding(top = 4.dp, bottom = 2.dp)
+                                            .horizontalScroll(aiPillsScrollState)
+                                            .padding(start = 4.dp, end = 4.dp, top = 8.dp, bottom = 2.dp),
+                                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                        verticalAlignment = Alignment.CenterVertically
                                     ) {
-                                        BoxWithConstraints(
-                                            modifier = Modifier
-                                                .fillMaxWidth()
-                                                .aspectRatio(841f / 98f)
+                                        @Composable
+                                        fun BotGlassActionPill(
+                                            iconType: String? = null,
+                                            label: String,
+                                            enabled: Boolean = true,
+                                            isDanger: Boolean = false,
+                                            isActive: Boolean = false,
+                                            onClick: () -> Unit
                                         ) {
-                                            val pw = maxWidth
-                                            val ph = maxHeight
-
-                                            androidx.compose.foundation.Image(
-                                                painter = androidx.compose.ui.res.painterResource(id = com.example.R.drawable.img_chat_ref_pills_row),
-                                                contentDescription = "Kopyala, Devam Et, Diğer",
-                                                contentScale = androidx.compose.ui.layout.ContentScale.FillBounds,
-                                                modifier = Modifier.fillMaxSize()
-                                            )
-
-                                            // 4.1 Kopyala Capsule Hit-Box (x = 4.5%..31.0%)
-                                            Box(
+                                            Row(
                                                 modifier = Modifier
-                                                    .offset(x = pw * 0.045f, y = ph * 0.08f)
-                                                    .size(width = pw * 0.265f, height = ph * 0.84f)
+                                                    .height(39.dp)
+                                                    .morCamOuterGlow(cornerRadius = 20.dp, shadowAlpha = 0.32f, rimGlowAlpha = 0.24f, bottomFlareAlpha = 0.44f)
                                                     .clip(RoundedCornerShape(50))
-                                                    .clickable(
-                                                        interactionSource = remember { MutableInteractionSource() },
-                                                        indication = null
-                                                    ) {
-                                                        val cleanText = cleanCopyText(msg.text)
-                                                        clipboardManager.setText(AnnotatedString(cleanText))
-                                                        android.widget.Toast.makeText(context, "Kopyalandı", android.widget.Toast.LENGTH_SHORT).show()
-                                                    }
-                                            )
-
-                                            // 4.2 Devam Et Capsule Hit-Box (x = 33.0%..59.5%)
-                                            Box(
-                                                modifier = Modifier
-                                                    .offset(x = pw * 0.330f, y = ph * 0.08f)
-                                                    .size(width = pw * 0.265f, height = ph * 0.84f)
-                                                    .clip(RoundedCornerShape(50))
-                                                    .clickable(
-                                                        enabled = !isSending,
-                                                        interactionSource = remember { MutableInteractionSource() },
-                                                        indication = null
-                                                    ) {
-                                                        expandedMenuMessageId = null
-                                                        if (onContinueScene != null) onContinueScene()
-                                                        else viewModel.continueStoryScene()
-                                                    }
-                                            )
-
-                                            // 4.3 Diğer Capsule Hit-Box (x = 61.5%..84.0%)
-                                            var showSecondaryAiActions by remember(msg.id) { mutableStateOf(false) }
-                                            Box(
-                                                modifier = Modifier
-                                                    .offset(x = pw * 0.615f, y = ph * 0.08f)
-                                                    .size(width = pw * 0.225f, height = ph * 0.84f)
-                                                    .clip(RoundedCornerShape(50))
-                                                    .clickable(
-                                                        interactionSource = remember { MutableInteractionSource() },
-                                                        indication = null
-                                                    ) {
-                                                        showSecondaryAiActions = !showSecondaryAiActions
-                                                    }
-                                            )
+                                                    .aetheriaBackdropBlur(rootSize, blurredBgBitmap, alpha = 0.92f)
+                                                    .background(
+                                                        when {
+                                                            isDanger -> Brush.verticalGradient(listOf(Color(0x664A1120), Color(0x762A0812)))
+                                                            isActive -> Brush.verticalGradient(listOf(Color(0x665B21B6), Color(0x723B1378)))
+                                                            else -> Brush.verticalGradient(listOf(Color(0x5632185A), Color(0x7016092B)))
+                                                        }
+                                                    )
+                                                    .border(
+                                                        BorderStroke(
+                                                            0.85.dp,
+                                                            if (isDanger) Color(0xAAF87171) else Color(0xBCE9D5FF)
+                                                        ),
+                                                        RoundedCornerShape(50)
+                                                    )
+                                                    .morCamTopAndBottomSpecular(cornerRadius = 20.dp, topSheenAlpha = 0.24f, bottomFlareAlpha = 0.80f)
+                                                    .clickable(enabled = enabled) { onClick() }
+                                                    .padding(start = if (iconType != null) 7.dp else 14.dp, end = 15.dp),
+                                                verticalAlignment = Alignment.CenterVertically,
+                                                horizontalArrangement = Arrangement.spacedBy(7.dp)
+                                            ) {
+                                                if (iconType != null) {
+                                                    GlassPillIconBadge(type = iconType, modifier = Modifier.size(25.dp))
+                                                }
+                                                Text(
+                                                    text = label,
+                                                    color = if (isDanger) Color(0xFFFCA5A5) else Color(0xFFFBF8FF),
+                                                    fontSize = 12.8.sp,
+                                                    fontFamily = LiterarySerifFontFamily
+                                                )
+                                            }
                                         }
 
-                                        // Secondary options row underneath Kopyala / Devam Et / Diğer
-                                        Row(
-                                            horizontalArrangement = Arrangement.spacedBy(8.dp),
-                                            verticalAlignment = Alignment.CenterVertically,
-                                            modifier = Modifier
-                                                .fillMaxWidth()
-                                                .horizontalScroll(rememberScrollState())
-                                                .padding(horizontal = 24.dp, vertical = 4.dp)
+                                        // 4.1 Kopyala Capsule
+                                        BotGlassActionPill(iconType = "copy", label = "Kopyala") {
+                                            val cleanText = cleanCopyText(msg.text)
+                                            clipboardManager.setText(AnnotatedString(cleanText))
+                                            android.widget.Toast.makeText(context, "Kopyalandı", android.widget.Toast.LENGTH_SHORT).show()
+                                        }
+
+                                        // 4.2 Devam Et Capsule
+                                        BotGlassActionPill(iconType = "continue", label = "Devam Et", enabled = !isSending) {
+                                            expandedMenuMessageId = null
+                                            showSecondaryAiActions = false
+                                            if (onContinueScene != null) onContinueScene()
+                                            else viewModel.continueStoryScene()
+                                        }
+
+                                        // 4.3 Diğer Capsule (Toggles horizontal expansion on the same row!)
+                                        BotGlassActionPill(
+                                            iconType = "more",
+                                            label = "Diğer",
+                                            isActive = showSecondaryAiActions
                                         ) {
-                                            @Composable
-                                            fun AiMiniPill(label: String, enabled: Boolean = true, isDanger: Boolean = false, onClick: () -> Unit) {
-                                                Box(
-                                                    modifier = Modifier
-                                                        .height(36.dp)
-                                                        .clip(RoundedCornerShape(50))
-                                                        .background(if (isDanger) Color(0x883B0D16) else Color(0x80231240))
-                                                        .border(1.dp, if (isDanger) Color(0x99F87171) else Color(0x99E9D5FF), RoundedCornerShape(50))
-                                                        .clickable(enabled = enabled) { onClick() }
-                                                        .padding(horizontal = 14.dp),
-                                                    contentAlignment = Alignment.Center
-                                                ) {
-                                                    Text(
-                                                        text = label,
-                                                        color = if (isDanger) Color(0xFFFCA5A5) else Color.White,
-                                                        fontSize = 12.sp,
-                                                        fontFamily = LiterarySerifFontFamily
-                                                    )
+                                            showSecondaryAiActions = !showSecondaryAiActions
+                                        }
+
+                                        // Secondary options expand HORIZONTALLY to the right on the exact same row (alt alta değil yana doğru!)
+                                        androidx.compose.animation.AnimatedVisibility(
+                                            visible = showSecondaryAiActions,
+                                            enter = androidx.compose.animation.fadeIn(tween(180)) +
+                                                androidx.compose.animation.expandHorizontally(tween(240, easing = FastOutSlowInEasing)),
+                                            exit = androidx.compose.animation.fadeOut(tween(140)) +
+                                                androidx.compose.animation.shrinkHorizontally(tween(180))
+                                        ) {
+                                            Row(
+                                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                                verticalAlignment = Alignment.CenterVertically
+                                            ) {
+                                                BotGlassActionPill(label = "🔄 Yeniden Oluştur", enabled = !isSending) {
+                                                    expandedMenuMessageId = null
+                                                    showSecondaryAiActions = false
+                                                    onRegenerate()
                                                 }
-                                            }
-                                            AiMiniPill("🔄 Yeniden Oluştur", enabled = !isSending) {
-                                                expandedMenuMessageId = null
-                                                onRegenerate()
-                                            }
-                                            AiMiniPill(if (isSpeaking) "⏹️ Durdur" else "🎙️ Sesli Oku") {
-                                                if (isSpeaking) onStopSpeaking() else onSpeakText?.invoke(msg.text)
-                                            }
-                                            AiMiniPill(if (msg.isStarred) "⭐ Yıldızı Kaldır" else "☆ Yıldızla") {
-                                                viewModel.toggleMessageStar(msg.id)
-                                            }
-                                            AiMiniPill("⏪ Buraya Sar") { rewindTargetMessageId = msg.id }
-                                            AiMiniPill("✏️ Düzenle") {
-                                                editingMessageId = msg.id
-                                                editingText = msg.text
-                                                expandedMenuMessageId = null
-                                            }
-                                            AiMiniPill("🗑️ Sil", isDanger = true) {
-                                                expandedMenuMessageId = null
-                                                onDeleteMessage(msg.id)
+                                                BotGlassActionPill(label = if (isSpeaking) "⏹️ Durdur" else "🎙️ Sesli Oku") {
+                                                    if (isSpeaking) onStopSpeaking() else onSpeakText?.invoke(msg.text)
+                                                }
+                                                BotGlassActionPill(label = if (msg.isStarred) "⭐ Yıldızı Kaldır" else "☆ Yıldızla") {
+                                                    viewModel.toggleMessageStar(msg.id)
+                                                }
+                                                BotGlassActionPill(label = "⏪ Buraya Sar") {
+                                                    rewindTargetMessageId = msg.id
+                                                    expandedMenuMessageId = null
+                                                    showSecondaryAiActions = false
+                                                }
+                                                BotGlassActionPill(label = "✏️ Düzenle") {
+                                                    editingMessageId = msg.id
+                                                    editingText = msg.text
+                                                    expandedMenuMessageId = null
+                                                    showSecondaryAiActions = false
+                                                }
+                                                BotGlassActionPill(label = "🗑️ Sil", isDanger = true) {
+                                                    expandedMenuMessageId = null
+                                                    showSecondaryAiActions = false
+                                                    onDeleteMessage(msg.id)
+                                                }
                                             }
                                         }
                                     }
                                 }
 
-                                // 😊 Reaction Picker Popup
+                                // 😊 Reaction Picker Popup (Translucent Glass Capsule)
                                 androidx.compose.animation.AnimatedVisibility(
                                     visible = reactionPickerMessageId == msg.id,
                                     enter = androidx.compose.animation.fadeIn(tween(150)) +
@@ -2721,10 +3212,12 @@ fun ChatScreen(
                                 ) {
                                     Box(
                                         modifier = Modifier
-                                            .padding(start = 24.dp, top = 4.dp, bottom = 4.dp)
-                                            .clip(RoundedCornerShape(20.dp))
-                                            .background(Brush.linearGradient(listOf(Color(0xFF1E0D40), Color(0xFF130828))))
-                                            .border(1.2.dp, Brush.linearGradient(listOf(Color(0xFF9333EA), Color(0xFF6D28D9), Color(0xFF9333EA))), RoundedCornerShape(20.dp))
+                                            .padding(start = 26.dp, top = 6.dp, bottom = 4.dp)
+                                            .morCamOuterGlow(cornerRadius = 22.dp, shadowAlpha = 0.38f, rimGlowAlpha = 0.38f, bottomFlareAlpha = 0.72f)
+                                            .clip(RoundedCornerShape(22.dp))
+                                            .aetheriaBackdropBlur(rootSize, blurredBgBitmap, alpha = 0.84f)
+                                            .background(Brush.linearGradient(listOf(Color(0x58381A68), Color(0x4C200D3E))))
+                                            .border(1.1.dp, Brush.linearGradient(listOf(Color(0xFFE9D5FF), Color(0xFFA855F7), Color(0xFFD8B4FE))), RoundedCornerShape(22.dp))
                                             .padding(horizontal = 10.dp, vertical = 8.dp)
                                     ) {
                                         Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -2750,7 +3243,7 @@ fun ChatScreen(
                                                             if (isSelected)
                                                                 Brush.radialGradient(listOf(Color(0xFF9333EA), Color(0xFF4C1D95)))
                                                             else
-                                                                Brush.radialGradient(listOf(Color(0x30A855F7), Color(0x10000000)))
+                                                                Brush.radialGradient(listOf(Color(0x38A855F7), Color(0x10000000)))
                                                         )
                                                         .clickable(interactionSource = emojiInteraction, indication = null) {
                                                             viewModel.setMessageReaction(msg.id, if (isSelected) "" else emoji)
@@ -2783,34 +3276,54 @@ fun ChatScreen(
                                 ) {
                                     Box(
                                         modifier = Modifier
-                                            .padding(start = 24.dp, top = 8.dp)
+                                            .padding(start = 25.dp, top = 8.dp)
                                             .morCamOuterGlow(
-                                                cornerRadius = 24.dp,
-                                                shadowAlpha = 0.42f,
-                                                rimGlowAlpha = 0.36f,
-                                                bottomFlareAlpha = 0.75f
+                                                cornerRadius = 22.dp,
+                                                shadowAlpha = 0.40f,
+                                                rimGlowAlpha = 0.24f,
+                                                bottomFlareAlpha = 0.46f
                                             )
-                                            .clip(RoundedCornerShape(24.dp))
-                                            .aetheriaBackdropBlur(rootSize, blurredBgBitmap, alpha = 0.94f)
+                                            .clip(RoundedCornerShape(22.dp))
+                                            .aetheriaBackdropBlur(rootSize, blurredBgBitmap, alpha = 0.95f)
                                             .background(
-                                                Brush.horizontalGradient(
+                                                Brush.verticalGradient(
                                                     listOf(
-                                                        Color(0x5E9674B8),
-                                                        Color(0x66503570),
-                                                        Color(0x70342050)
+                                                        Color(0x38886CB0),
+                                                        Color(0x4C3B2358),
+                                                        Color(0x60201038)
                                                     )
                                                 )
                                             )
+                                            .background(
+                                                Brush.linearGradient(
+                                                    colors = listOf(
+                                                        Color(0x22F3E8FF),
+                                                        Color(0x0AD8B4FE),
+                                                        Color.Transparent
+                                                    ),
+                                                    start = Offset.Zero,
+                                                    end = Offset(420f, 260f)
+                                                )
+                                            )
                                             .border(
-                                                BorderStroke(1.dp, Color(0x99E9D5FF)),
-                                                RoundedCornerShape(24.dp)
+                                                BorderStroke(
+                                                    0.85.dp,
+                                                    Brush.linearGradient(
+                                                        listOf(
+                                                            Color(0xCCE9D5FF),
+                                                            Color(0x529333EA),
+                                                            Color(0xD0E9D5FF)
+                                                        )
+                                                    )
+                                                ),
+                                                RoundedCornerShape(22.dp)
                                             )
                                             .morCamTopAndBottomSpecular(
-                                                cornerRadius = 24.dp,
-                                                topSheenAlpha = 0.24f,
-                                                bottomFlareAlpha = 0.90f
+                                                cornerRadius = 22.dp,
+                                                topSheenAlpha = 0.26f,
+                                                bottomFlareAlpha = 0.84f
                                             )
-                                            .padding(start = 26.dp, end = 20.dp, top = 14.dp, bottom = 14.dp)
+                                            .padding(start = 28.dp, end = 20.dp, top = 14.dp, bottom = 14.dp)
                                     ) {
                                         Row(verticalAlignment = Alignment.CenterVertically) {
                                             TypingDots()
@@ -2825,11 +3338,12 @@ fun ChatScreen(
                                     }
 
                                     AidenMagicSigilAvatar(
-                                        totalSize = 48.dp,
+                                        totalSize = 46.dp,
                                         contentDescription = displayName,
+                                        initial = avatarInitial,
                                         modifier = Modifier
                                             .align(Alignment.TopStart)
-                                            .offset(x = 0.dp, y = (-3).dp)
+                                            .offset(x = (-2).dp, y = (-4).dp)
                                             .zIndex(20f)
                                     )
                                 }
@@ -2864,7 +3378,7 @@ fun ChatScreen(
                 Box(
                     modifier = Modifier
                         .align(Alignment.BottomEnd)
-                        .padding(bottom = 12.dp, end = 16.dp)
+                        .padding(bottom = bottomInsetPadding + 10.dp, end = 16.dp)
                 ) {
                     Box(
                         modifier = Modifier
@@ -2914,6 +3428,7 @@ fun ChatScreen(
                 }
             }
         }
+    }
     }
 }
 

@@ -93,6 +93,7 @@ import androidx.compose.ui.graphics.StrokeJoin
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.drawIntoCanvas
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.graphics.nativeCanvas
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalConfiguration
@@ -119,6 +120,7 @@ import java.util.UUID
 import kotlin.math.PI
 import kotlin.math.abs
 import kotlin.math.cos
+import kotlin.math.floor
 import kotlin.math.min
 import kotlin.math.sin
 import kotlin.random.Random
@@ -721,8 +723,8 @@ fun AidenStoriesModalContent(
     val mainFeaturedPreset = presetById["preset_aiden_zoktay"] ?: aidenPresets.firstOrNull()
     val mainFeaturedSpec = AIDEN_CATALOG_SPECS.first()
 
-    // Currently active Carousel universe index & Floating Preview Popover spec
-    var activeCarouselIndex by remember { mutableIntStateOf(0) }
+    // Continuous real-time Carousel universe position [0f, count) + Floating Preview Popover spec
+    var continuousCarouselPos by remember { mutableStateOf(0f) }
     var previewSpec by remember { mutableStateOf<AidenCatalogRowSpec?>(null) }
 
     // BackHandler protection: if the Floating Preview Popover is open, close ONLY the popover first!
@@ -734,31 +736,64 @@ fun AidenStoriesModalContent(
         }
     }
 
-    // Reactive theme responds to either the open Preview Popover or the active Carousel slide (700ms smooth transition)
-    val activeReactiveTheme = remember(activeCarouselIndex, previewSpec) {
-        (previewSpec ?: AIDEN_CATALOG_SPECS.getOrElse(activeCarouselIndex) { AIDEN_CATALOG_SPECS.first() }).reactiveTheme
+    val previewOverrideBlend by animateFloatAsState(
+        targetValue = if (previewSpec != null) 1f else 0f,
+        animationSpec = tween(durationMillis = 300, easing = FastOutSlowInEasing),
+        label = "preview_theme_override_blend"
+    )
+    var lastPreviewIndex by remember { mutableIntStateOf(0) }
+    LaunchedEffect(previewSpec) {
+        if (previewSpec != null) {
+            val found = AIDEN_CATALOG_SPECS.indexOfFirst { it.presetId == previewSpec?.presetId }
+            if (found >= 0) lastPreviewIndex = found
+        }
     }
 
-    val reactivePrimaryColor by animateColorAsState(
-        targetValue = activeReactiveTheme.primaryOrb,
-        animationSpec = tween(durationMillis = 700, easing = FastOutSlowInEasing),
-        label = "reactive_primary_orb"
+    // Real-time circular weight array across the 5 universes — interpolates synchronously frame-by-frame with the pager!
+    val universeCount = AIDEN_CATALOG_SPECS.size
+    val posWrapped = ((continuousCarouselPos % universeCount) + universeCount) % universeCount
+    val idxA = floor(posWrapped).toInt() % universeCount
+    val idxB = (idxA + 1) % universeCount
+    val frac = (posWrapped - floor(posWrapped)).coerceIn(0f, 1f)
+    // Smoothstep S-curve for silky cross-dissolve between adjacent universe themes & particles
+    val smoothFrac = frac * frac * (3f - 2f * frac)
+
+    val themeA = AIDEN_CATALOG_SPECS[idxA].reactiveTheme
+    val themeB = AIDEN_CATALOG_SPECS[idxB].reactiveTheme
+    val previewTheme = AIDEN_CATALOG_SPECS[lastPreviewIndex].reactiveTheme
+
+    val reactivePrimaryColor = lerp(
+        lerp(themeA.primaryOrb, themeB.primaryOrb, smoothFrac),
+        previewTheme.primaryOrb,
+        previewOverrideBlend
     )
-    val reactiveSecondaryColor by animateColorAsState(
-        targetValue = activeReactiveTheme.secondaryOrb,
-        animationSpec = tween(durationMillis = 700, easing = FastOutSlowInEasing),
-        label = "reactive_secondary_orb"
+    val reactiveSecondaryColor = lerp(
+        lerp(themeA.secondaryOrb, themeB.secondaryOrb, smoothFrac),
+        previewTheme.secondaryOrb,
+        previewOverrideBlend
     )
-    val reactiveDeepColor by animateColorAsState(
-        targetValue = activeReactiveTheme.deepAtmosphere,
-        animationSpec = tween(durationMillis = 700, easing = FastOutSlowInEasing),
-        label = "reactive_deep_color"
+    val reactiveDeepColor = lerp(
+        lerp(themeA.deepAtmosphere, themeB.deepAtmosphere, smoothFrac),
+        previewTheme.deepAtmosphere,
+        previewOverrideBlend
     )
-    val reactiveEmberColor by animateColorAsState(
-        targetValue = activeReactiveTheme.emberAccent,
-        animationSpec = tween(durationMillis = 700, easing = FastOutSlowInEasing),
-        label = "reactive_ember_color"
+    val reactiveEmberColor = lerp(
+        lerp(themeA.emberAccent, themeB.emberAccent, smoothFrac),
+        previewTheme.emberAccent,
+        previewOverrideBlend
     )
+
+    val universeWeights = remember(idxA, idxB, smoothFrac, lastPreviewIndex, previewOverrideBlend) {
+        FloatArray(universeCount) { i ->
+            val carouselWeight = when (i) {
+                idxA -> 1f - smoothFrac
+                idxB -> smoothFrac
+                else -> 0f
+            }
+            val previewWeight = if (i == lastPreviewIndex) 1f else 0f
+            carouselWeight * (1f - previewOverrideBlend) + previewWeight * previewOverrideBlend
+        }
+    }
 
     val infiniteTransition = rememberInfiniteTransition(label = "aiden_modal_ambient")
     val ambientPhase by infiniteTransition.animateFloat(
@@ -774,7 +809,7 @@ fun AidenStoriesModalContent(
         initialValue = 0f,
         targetValue = 1f,
         animationSpec = infiniteRepeatable(
-            animation = tween(durationMillis = 14000, easing = LinearEasing),
+            animation = tween(durationMillis = 12000, easing = LinearEasing),
             repeatMode = RepeatMode.Restart
         ),
         label = "ember_phase"
@@ -833,10 +868,7 @@ fun AidenStoriesModalContent(
             .testTag("aiden_stories_modal_root")
     ) {
         // =========================================================================
-        // BÖLÜM 2: 3-LAYER DYNAMIC AMBIENT BACKGROUND (z-0, pointer-events-none)
-        //  1) Base Dark Cosmic Sky + 700ms Reactive Theme Nebula Orbs (blur 90dp, opacity 35%)
-        //  2) Left/Right Corridor Gothic Arch & Castle Silhouettes + Flowing Energy Veins (opacity <= 20%)
-        //  3) 18 Floating Cosmic Embers drifting upward smoothly on GPU
+        // BÖLÜM 2: REAL-TIME SYNCHRONIZED MULTI-UNIVERSE AMBIENT & PARTICLE ENGINE
         // =========================================================================
         AidenDynamicAmbientBackground(
             ambientPhase = ambientPhase,
@@ -846,7 +878,8 @@ fun AidenStoriesModalContent(
             reactivePrimaryColor = reactivePrimaryColor,
             reactiveSecondaryColor = reactiveSecondaryColor,
             reactiveDeepColor = reactiveDeepColor,
-            reactiveEmberColor = reactiveEmberColor
+            reactiveEmberColor = reactiveEmberColor,
+            universeWeights = universeWeights
         )
 
         // =========================================================================
@@ -879,8 +912,8 @@ fun AidenStoriesModalContent(
                             glowPulse = glowPulse,
                             isPausedExternal = previewSpec != null,
                             startedPresetIds = startedPresetIds,
-                            onActiveUniverseChanged = { idx ->
-                                activeCarouselIndex = idx
+                            onContinuousUniverseChanged = { fractionalPos ->
+                                continuousCarouselPos = fractionalPos
                             },
                             onLaunchActiveSlide = { spec ->
                                 val target = presetById[spec.presetId] ?: mainFeaturedPreset
@@ -1201,7 +1234,8 @@ private fun AidenDynamicAmbientBackground(
     reactivePrimaryColor: Color,
     reactiveSecondaryColor: Color,
     reactiveDeepColor: Color,
-    reactiveEmberColor: Color
+    reactiveEmberColor: Color,
+    universeWeights: FloatArray
 ) {
     Box(modifier = Modifier.fillMaxSize()) {
         // Layer 0: Base Dark Night-Indigo Cosmic Background with Organic Purple ("morumsu") Smoke Wisps
@@ -1218,7 +1252,7 @@ private fun AidenDynamicAmbientBackground(
                 }
         )
 
-        // Layer 1, 2 & 3 rendered in a single GPU-friendly Canvas (pointer-events-none)
+        // Layer 1, 2 & 3: Real-Time Universe-Synchronized Nebula, Veins & Multi-Physics Particles
         Canvas(modifier = Modifier.fillMaxSize()) {
             val w = size.width
             val h = size.height
@@ -1227,32 +1261,36 @@ private fun AidenDynamicAmbientBackground(
             val driftX = 14.dp.toPx() * sin(phaseRad)
             val driftY = 10.dp.toPx() * cos(phaseRad)
 
+            val wGs = universeWeights.getOrElse(0) { 0f }       // Galatasaray (Gold/Crimson Stadium)
+            val wDispatch = universeWeights.getOrElse(1) { 0f } // Beyaz Gözler (Cyan Neural Sparks)
+            val wJoker = universeWeights.getOrElse(2) { 0f }    // Kırmızı Gözler (Crimson Embers)
+            val wDoctor = universeWeights.getOrElse(3) { 0f }   // Natasha / Hastane (Arctic Mist)
+            val wTokyo = universeWeights.getOrElse(4) { 0f }    // Sıfır Noktası / Tokyo (Neon Rain)
+
             // =========================================================================
-            // 1. REACTIVE THEME NEBULA ORBS (700ms animated colors, opacity <= 0.35f)
+            // 1. REACTIVE THEME NEBULA ORBS (Synced lockstep with Carousel)
             // =========================================================================
-            // Upper-mid reactive nebula sphere (behind ÖNE ÇIKAN EVREN & top of story list)
             drawCircle(
                 brush = Brush.radialGradient(
                     colors = listOf(
-                        reactivePrimaryColor.copy(alpha = 0.25f * glowPulse),
-                        reactiveSecondaryColor.copy(alpha = 0.18f * glowPulse),
+                        reactivePrimaryColor.copy(alpha = 0.28f * glowPulse),
+                        reactiveSecondaryColor.copy(alpha = 0.20f * glowPulse),
                         reactiveDeepColor.copy(alpha = 0.28f),
                         Color.Transparent
                     ),
                     center = Offset(w * 0.65f + driftX, h * 0.42f + pShiftY * 0.25f),
-                    radius = w * 0.56f
+                    radius = w * 0.58f
                 ),
                 center = Offset(w * 0.65f + driftX, h * 0.42f + pShiftY * 0.25f),
-                radius = w * 0.56f
+                radius = w * 0.58f
             )
 
-            // Lower-left reactive nebula sphere (fills the dark void behind the 5 story cards)
             drawCircle(
                 brush = Brush.radialGradient(
                     colors = listOf(
-                        reactiveSecondaryColor.copy(alpha = 0.24f * glowPulse),
-                        reactivePrimaryColor.copy(alpha = 0.16f * glowPulse),
-                        reactiveDeepColor.copy(alpha = 0.32f),
+                        reactiveSecondaryColor.copy(alpha = 0.26f * glowPulse),
+                        reactivePrimaryColor.copy(alpha = 0.18f * glowPulse),
+                        reactiveDeepColor.copy(alpha = 0.30f),
                         Color.Transparent
                     ),
                     center = Offset(w * 0.28f - driftX, h * 0.72f + driftY + pShiftY * 0.20f),
@@ -1262,12 +1300,11 @@ private fun AidenDynamicAmbientBackground(
                 radius = w * 0.62f
             )
 
-            // Bottom-right reactive nebula sphere (behind cards 4 & 5)
             drawCircle(
                 brush = Brush.radialGradient(
                     colors = listOf(
-                        reactivePrimaryColor.copy(alpha = 0.22f * glowPulse),
-                        Color(0xFF581C87).copy(alpha = 0.24f * glowPulse),
+                        reactiveEmberColor.copy(alpha = 0.24f * glowPulse),
+                        Color(0xFF581C87).copy(alpha = 0.22f * glowPulse),
                         Color.Transparent
                     ),
                     center = Offset(w * 0.78f + driftX * 0.7f, h * 0.88f - driftY),
@@ -1278,13 +1315,12 @@ private fun AidenDynamicAmbientBackground(
             )
 
             // =========================================================================
-            // 2. GOTHIC ARCH / CASTLE SILHOUETTES & FLOWING ENERGY VEINS ALONG EDGES (opacity <= 0.20f)
+            // 2. GOTHIC ARCH / CASTLE SILHOUETTES & REACTIVE ENERGY VEINS
             // =========================================================================
             val edgeCorridorW = w * 0.11f
             val gothicSilhouetteColor = Color(0xFF2E1065).copy(alpha = 0.18f)
-            val gothicArchStroke = Color(0xFF9333EA).copy(alpha = 0.16f * glowPulse)
+            val gothicArchStroke = reactivePrimaryColor.copy(alpha = 0.17f * glowPulse)
 
-            // Left & Right Subtle Gothic Spire / Arch Silhouettes in the outer margin corridors
             val leftSpirePath = Path().apply {
                 moveTo(0f, h * 0.28f)
                 lineTo(edgeCorridorW * 0.65f, h * 0.34f)
@@ -1321,7 +1357,6 @@ private fun AidenDynamicAmbientBackground(
                 style = Stroke(width = 1.1.dp.toPx())
             )
 
-            // Flowing Left & Right Cosmic Energy Veins & Vine Tendrils (strictly <= 0.19f alpha)
             val leftVeinPath = Path()
             val rightVeinPath = Path()
             val steps = 28
@@ -1346,30 +1381,29 @@ private fun AidenDynamicAmbientBackground(
             val veinBrush = Brush.verticalGradient(
                 colors = listOf(
                     Color.Transparent,
-                    Color(0xFFA855F7).copy(alpha = 0.18f * glowPulse),
-                    reactivePrimaryColor.copy(alpha = 0.17f * glowPulse),
-                    Color(0xFFC084FC).copy(alpha = 0.16f * glowPulse),
+                    reactivePrimaryColor.copy(alpha = 0.22f * glowPulse),
+                    reactiveSecondaryColor.copy(alpha = 0.20f * glowPulse),
+                    reactiveEmberColor.copy(alpha = 0.18f * glowPulse),
                     Color.Transparent
                 )
             )
             drawPath(
                 path = leftVeinPath,
                 brush = veinBrush,
-                style = Stroke(width = 1.5.dp.toPx(), cap = StrokeCap.Round)
+                style = Stroke(width = 1.6.dp.toPx(), cap = StrokeCap.Round)
             )
             drawPath(
                 path = rightVeinPath,
                 brush = veinBrush,
-                style = Stroke(width = 1.5.dp.toPx(), cap = StrokeCap.Round)
+                style = Stroke(width = 1.6.dp.toPx(), cap = StrokeCap.Round)
             )
 
             // =========================================================================
-            // 3. FLOATING COSMIC EMBERS & ENERGY PARTICLES (18 particles, 2dp - 5dp, rising smoothly)
+            // 3A. SHARED REACTIVE COSMIC EMBERS (Weighted smoothly toward active theme)
             // =========================================================================
-            AMBIENT_EMBER_PARTICLES.forEach { particle ->
+            AMBIENT_EMBER_PARTICLES.forEachIndexed { idx, particle ->
                 val rawProgress = (particle.initialYFraction - emberPhase * particle.speedMultiplier) % 1f
                 val yFrac = if (rawProgress < 0f) rawProgress + 1f else rawProgress
-                // Fade in at bottom (yFrac > 0.90) and fade out near top (yFrac < 0.15)
                 val verticalEnvelope = when {
                     yFrac > 0.88f -> ((1f - yFrac) / 0.12f).coerceIn(0f, 1f)
                     yFrac < 0.16f -> (yFrac / 0.16f).coerceIn(0f, 1f)
@@ -1380,34 +1414,194 @@ private fun AidenDynamicAmbientBackground(
                     sin(((yFrac * particle.swayFrequency + ambientPhase) * 2f * PI).toFloat())
                 val px = (w * particle.xFraction + swayPx).coerceIn(4f, w - 4f)
                 val py = h * (0.14f + yFrac * 0.84f)
-                val radiusPx = (particle.sizeDp * 0.5f).dp.toPx()
+                val radiusPx = (particle.sizeDp * 0.55f).dp.toPx()
 
-                val baseParticleColor = when (particle.colorIndex) {
-                    0 -> Color(0xFFD8B4FE) // Glowing Purple-Lavender
-                    1 -> Color(0xFFFBBF24) // Cosmic Gold
-                    else -> reactiveEmberColor // Reactive Cyan/Blue/Rose/Fuchsia
+                val baseParticleColor = when {
+                    idx % 4 == 0 -> reactivePrimaryColor
+                    idx % 4 == 1 -> reactiveEmberColor
+                    idx % 4 == 2 -> reactiveSecondaryColor
+                    else -> Color(0xFFF3E8FF)
                 }
 
-                val particleAlpha = (0.55f * verticalEnvelope * glowPulse).coerceIn(0f, 0.65f)
-                // Soft outer halo
+                val particleAlpha = (0.64f * verticalEnvelope * glowPulse).coerceIn(0f, 0.72f)
                 drawCircle(
                     brush = Brush.radialGradient(
                         colors = listOf(
-                            baseParticleColor.copy(alpha = particleAlpha * 0.65f),
+                            baseParticleColor.copy(alpha = particleAlpha * 0.68f),
                             Color.Transparent
                         ),
                         center = Offset(px, py),
-                        radius = radiusPx * 3.2f
+                        radius = radiusPx * 3.6f
                     ),
                     center = Offset(px, py),
-                    radius = radiusPx * 3.2f
+                    radius = radiusPx * 3.6f
                 )
-                // Bright core
                 drawCircle(
-                    color = baseParticleColor.copy(alpha = particleAlpha),
+                    color = Color.White.copy(alpha = particleAlpha * 0.75f),
                     center = Offset(px, py),
-                    radius = radiusPx
+                    radius = radiusPx * 0.75f
                 )
+            }
+
+            // =========================================================================
+            // 3B. SIGNATURE UNIVERSE-SPECIFIC PARTICLES & ATMOSPHERIC EFFECTS
+            // =========================================================================
+
+            // 0) GALATASARAY EVRENİ: Golden Stadium Floodlight Beams & Warm Amber-Crimson Sparkles
+            if (wGs > 0.02f) {
+                val beamShift = sin(phaseRad) * w * 0.08f
+                val gsRayPath = Path().apply {
+                    moveTo(w * 0.12f + beamShift, h * 0.20f)
+                    lineTo(w * 0.34f + beamShift, h * 0.20f)
+                    lineTo(w * 0.86f - beamShift * 0.5f, h * 0.92f)
+                    lineTo(w * 0.52f - beamShift * 0.5f, h * 0.92f)
+                    close()
+                }
+                drawPath(
+                    path = gsRayPath,
+                    brush = Brush.verticalGradient(
+                        listOf(
+                            Color(0xFFFBBF24).copy(alpha = 0.07f * wGs),
+                            Color(0xFFDC2626).copy(alpha = 0.04f * wGs),
+                            Color.Transparent
+                        )
+                    )
+                )
+                for (k in 0 until 8) {
+                    val prog = ((k * 0.137f) - emberPhase * (0.9f + (k % 3) * 0.25f)) % 1f
+                    val yf = if (prog < 0f) prog + 1f else prog
+                    val env = sin(yf * PI).toFloat().coerceIn(0f, 1f)
+                    val sx = w * (0.10f + ((k * 0.113f + 0.08f) % 0.80f)) + sin((yf * 6f + k).toDouble()).toFloat() * 12.dp.toPx()
+                    val sy = h * (0.24f + yf * 0.70f)
+                    val spSize = (4.5f + (k % 3) * 1.8f).dp.toPx()
+                    val starColor = if (k % 2 == 0) Color(0xFFFBBF24) else Color(0xFFFB7185)
+                    val spPath = Path().apply {
+                        moveTo(sx, sy - spSize)
+                        lineTo(sx + spSize * 0.22f, sy - spSize * 0.22f)
+                        lineTo(sx + spSize, sy)
+                        lineTo(sx + spSize * 0.22f, sy + spSize * 0.22f)
+                        lineTo(sx, sy + spSize)
+                        lineTo(sx - spSize * 0.22f, sy + spSize * 0.22f)
+                        lineTo(sx - spSize, sy)
+                        lineTo(sx - spSize * 0.22f, sy - spSize * 0.22f)
+                        close()
+                    }
+                    drawPath(spPath, color = starColor.copy(alpha = 0.62f * env * wGs))
+                }
+            }
+
+            // 1) BEYAZ GÖZLER (DISPATCH): Electric Cyan 4-Point Neural Sparks & Expanding Telekinetic Rings
+            if (wDispatch > 0.02f) {
+                for (r in 0 until 3) {
+                    val ringProg = (ambientPhase + r * 0.33f) % 1f
+                    val ringAlpha = (1f - ringProg) * 0.22f * wDispatch
+                    val cx = w * (0.25f + r * 0.26f)
+                    val cy = h * (0.46f + (r % 2) * 0.26f)
+                    drawCircle(
+                        color = Color(0xFF38BDF8).copy(alpha = ringAlpha),
+                        radius = (18f + ringProg * 72f).dp.toPx(),
+                        center = Offset(cx, cy),
+                        style = Stroke(width = 1.3.dp.toPx())
+                    )
+                }
+                for (k in 0 until 10) {
+                    val prog = ((k * 0.19f) - emberPhase * (1.25f + (k % 2) * 0.4f)) % 1f
+                    val yf = if (prog < 0f) prog + 1f else prog
+                    val env = sin(yf * PI).toFloat().coerceIn(0f, 1f)
+                    val sx = w * (0.08f + ((k * 0.17f) % 0.84f)) + cos((ambientPhase * 2f * PI + k).toDouble()).toFloat() * 16.dp.toPx()
+                    val sy = h * (0.22f + yf * 0.72f)
+                    val rPx = 4.2.dp.toPx()
+                    drawLine(
+                        color = Color(0xFFE0F2FE).copy(alpha = 0.78f * env * wDispatch),
+                        start = Offset(sx - rPx, sy),
+                        end = Offset(sx + rPx, sy),
+                        strokeWidth = 1.4.dp.toPx(),
+                        cap = StrokeCap.Round
+                    )
+                    drawLine(
+                        color = Color(0xFF22D3EE).copy(alpha = 0.78f * env * wDispatch),
+                        start = Offset(sx, sy - rPx * 1.4f),
+                        end = Offset(sx, sy + rPx * 1.4f),
+                        strokeWidth = 1.4.dp.toPx(),
+                        cap = StrokeCap.Round
+                    )
+                }
+            }
+
+            // 2) KIRMIZI GÖZLER (YIKIM PROTOKOLÜ): Swirling Crimson Ash Streaks & Ruby Embers
+            if (wJoker > 0.02f) {
+                for (k in 0 until 12) {
+                    val prog = ((k * 0.11f) - emberPhase * (1.15f + (k % 3) * 0.35f)) % 1f
+                    val yf = if (prog < 0f) prog + 1f else prog
+                    val env = sin(yf * PI).toFloat().coerceIn(0f, 1f)
+                    val sx = w * (0.06f + ((k * 0.13f) % 0.88f)) + sin((yf * 8f + k * 1.3f).toDouble()).toFloat() * 18.dp.toPx()
+                    val sy = h * (0.22f + yf * 0.74f)
+                    val streakLen = (9f + (k % 3) * 5f).dp.toPx()
+                    drawLine(
+                        brush = Brush.verticalGradient(
+                            listOf(
+                                Color(0xFFF43F5E).copy(alpha = 0.78f * env * wJoker),
+                                Color(0xFFE11D48).copy(alpha = 0.40f * env * wJoker),
+                                Color.Transparent
+                            )
+                        ),
+                        start = Offset(sx, sy),
+                        end = Offset(sx - 3.dp.toPx(), sy + streakLen),
+                        strokeWidth = 2.2.dp.toPx(),
+                        cap = StrokeCap.Round
+                    )
+                }
+            }
+
+            // 3) NATASHA ROMANOFF (HASTANE): Calm Suspended Arctic Blue & Emerald Bioluminescent Dust
+            if (wDoctor > 0.02f) {
+                for (k in 0 until 11) {
+                    val driftProg = ((k * 0.15f) + ambientPhase * (0.45f + (k % 3) * 0.15f)) % 1f
+                    val sx = w * driftProg
+                    val sy = h * (0.26f + ((k * 0.068f) % 0.68f)) + sin((driftProg * 2f * PI + k).toDouble()).toFloat() * 10.dp.toPx()
+                    val env = sin(driftProg * PI).toFloat().coerceIn(0f, 1f)
+                    val c = if (k % 2 == 0) Color(0xFF38BDF8) else Color(0xFF34D399)
+                    drawCircle(
+                        brush = Brush.radialGradient(
+                            listOf(c.copy(alpha = 0.56f * env * wDoctor), Color.Transparent),
+                            center = Offset(sx, sy),
+                            radius = 12.dp.toPx()
+                        ),
+                        center = Offset(sx, sy),
+                        radius = 12.dp.toPx()
+                    )
+                    drawCircle(
+                        color = Color(0xFFE0F2FE).copy(alpha = 0.72f * env * wDoctor),
+                        radius = 1.8.dp.toPx(),
+                        center = Offset(sx, sy)
+                    )
+                }
+            }
+
+            // 4) SIFIR NOKTASI (TOKYO): Diagonal Neon Rain Streaks & Magenta Cyber Fireflies
+            if (wTokyo > 0.02f) {
+                for (k in 0 until 14) {
+                    val prog = ((k * 0.143f) + emberPhase * (1.85f + (k % 3) * 0.45f)) % 1f
+                    val env = sin(prog * PI).toFloat().coerceIn(0f, 1f)
+                    val sx = w * ((0.06f + k * 0.072f + prog * 0.08f) % 0.96f)
+                    val sy = h * (0.18f + prog * 0.78f)
+                    val rainCol = if (k % 2 == 0) Color(0xFFE879F9) else Color(0xFF22D3EE)
+                    drawLine(
+                        brush = Brush.linearGradient(
+                            listOf(
+                                Color.Transparent,
+                                rainCol.copy(alpha = 0.65f * env * wTokyo),
+                                Color.White.copy(alpha = 0.45f * env * wTokyo)
+                            ),
+                            start = Offset(sx + 6.dp.toPx(), sy - 16.dp.toPx()),
+                            end = Offset(sx, sy)
+                        ),
+                        start = Offset(sx + 6.dp.toPx(), sy - 16.dp.toPx()),
+                        end = Offset(sx, sy),
+                        strokeWidth = 1.4.dp.toPx(),
+                        cap = StrokeCap.Round
+                    )
+                }
             }
         }
     }
@@ -1437,7 +1631,7 @@ private fun AidenTopHeaderBanner(
             .aspectRatio(841f / 260f)
     ) {
         Image(
-            painter = painterResource(id = R.drawable.img_aiden_modal_header_v11),
+            painter = painterResource(id = R.drawable.img_aiden_modal_header_v12),
             contentDescription = "Aiden Blackwood Stories",
             contentScale = ContentScale.FillBounds,
             modifier = Modifier
@@ -1537,7 +1731,7 @@ private fun AidenTopHeaderBanner(
         Box(
             modifier = Modifier
                 .align(Alignment.TopEnd)
-                .padding(top = 8.dp, end = 8.dp)
+                .padding(top = 18.dp, end = 8.dp)
                 .size(48.dp)
                 .graphicsLayer {
                     scaleX = closeScale
@@ -1670,7 +1864,7 @@ private fun AidenHeroPeekingCarousel(
     glowPulse: Float,
     isPausedExternal: Boolean,
     startedPresetIds: Set<String>,
-    onActiveUniverseChanged: (Int) -> Unit,
+    onContinuousUniverseChanged: (Float) -> Unit,
     onLaunchActiveSlide: (AidenCatalogRowSpec) -> Unit,
     onShowMoreClick: (AidenCatalogRowSpec) -> Unit
 ) {
@@ -1689,47 +1883,32 @@ private fun AidenHeroPeekingCarousel(
 
     val slideTimerProgress = remember { Animatable(0f) }
 
-    val targetUniverseIndex by remember {
-        derivedStateOf {
-            val activeVirtualPage = if (isUserDragging) {
-                pagerState.currentPage
-            } else {
-                pagerState.targetPage
-            }
-            ((activeVirtualPage % count) + count) % count
-        }
-    }
     val settledUniverseIndex by remember {
         derivedStateOf {
             ((pagerState.settledPage % count) + count) % count
         }
     }
 
-    LaunchedEffect(targetUniverseIndex) {
-        onActiveUniverseChanged(targetUniverseIndex)
-    }
+    // Emit continuous fractional page position every frame during swipe or auto-scroll so reactive particles & colors sync 1:1!
+    val continuousPagePos = pagerState.currentPage + pagerState.currentPageOffsetFraction
+    onContinuousUniverseChanged(continuousPagePos)
 
-    // Section 3.2 Protection: Pause auto-advance immediately when user touches Carousel OR opens "Daha Fazla Göster"
+    // Section 3.2: Reliable Auto-Advance Loop & Pause-on-Interaction Protection
+    // Note: Keep a SINGLE LaunchedEffect mutating slideTimerProgress so MutatorMutex never cancels animateTo(1f)!
     LaunchedEffect(pagerState.settledPage, isPaused) {
+        slideTimerProgress.snapTo(0f)
         if (isPaused) {
             return@LaunchedEffect
         }
-        val startFrom = if (slideTimerProgress.value >= 0.99f) 0f else slideTimerProgress.value
-        slideTimerProgress.snapTo(startFrom)
-        val remainingDuration = ((1f - startFrom) * 4500f).toInt().coerceAtLeast(300)
         slideTimerProgress.animateTo(
             targetValue = 1f,
-            animationSpec = tween(durationMillis = remainingDuration, easing = LinearEasing)
+            animationSpec = tween(durationMillis = 3600, easing = LinearEasing)
         )
         slideTimerProgress.snapTo(0f)
         pagerState.animateScrollToPage(
             page = pagerState.settledPage + 1,
             animationSpec = tween(durationMillis = 520, easing = FastOutSlowInEasing)
         )
-    }
-
-    LaunchedEffect(pagerState.settledPage) {
-        slideTimerProgress.snapTo(0f)
     }
 
     Column(
@@ -2050,13 +2229,19 @@ private fun AidenHeroPeekingCarousel(
                 .padding(horizontal = 9.dp, vertical = 3.5.dp)
                 .testTag("aiden_carousel_pagination_row")
         ) {
+            // Continuous fractional page position so pagination capsules morph in real time during both auto-scroll and user swipe
+            val rawFractionalPage = (pagerState.currentPage + pagerState.currentPageOffsetFraction)
+            val fractionalMod = ((rawFractionalPage % count.toFloat()) + count.toFloat()) % count.toFloat()
+
             specs.forEachIndexed { idx, _ ->
-                val isSelected = idx == targetUniverseIndex
+                val rawDist = abs(fractionalMod - idx.toFloat())
+                val circularDist = min(rawDist, count.toFloat() - rawDist)
+                val continuousSelection = (1f - circularDist).coerceIn(0f, 1f)
                 val selectionAnim by animateFloatAsState(
-                    targetValue = if (isSelected) 1f else 0f,
-                    animationSpec = tween(
-                        durationMillis = 520,
-                        easing = FastOutSlowInEasing
+                    targetValue = continuousSelection,
+                    animationSpec = spring(
+                        dampingRatio = 0.78f,
+                        stiffness = Spring.StiffnessMediumLow
                     ),
                     label = "pagination_select_anim_$idx"
                 )
@@ -2068,10 +2253,8 @@ private fun AidenHeroPeekingCarousel(
                 val isCurrentSettled = idx == settledUniverseIndex && !pagerState.isScrollInProgress
                 val timerFill = if (isCurrentSettled) {
                     slideTimerProgress.value
-                } else if (isSelected) {
-                    0.18f * selectionAnim
                 } else {
-                    0f
+                    selectionAnim
                 }
 
                 Box(
@@ -2119,9 +2302,9 @@ private fun AidenHeroPeekingCarousel(
 
                                 // Live left-to-right progress fill
                                 val fillFraction = if (isCurrentSettled) {
-                                    (0.18f + 0.82f * timerFill).coerceIn(0.18f, 1f)
+                                    (0.22f + 0.78f * timerFill).coerceIn(0.22f, 1f)
                                 } else {
-                                    (0.18f * selectionAnim).coerceIn(0f, 1f)
+                                    (0.35f + 0.65f * selectionAnim).coerceIn(0f, 1f)
                                 }
                                 val fillWidth = (size.width * fillFraction).coerceAtLeast(size.height * selectionAnim)
 
@@ -2397,27 +2580,43 @@ private fun AidenFeaturedUniverseCard(
             )
             .testTag("aiden_featured_universe_card")
     ) {
-        // 1. All Multi-Layer Optical Frosted Glass Layers (rendered UNDERNEATH the Photo & Özel Tasarım)
+        // 1. All Multi-Layer Optical Frosted Glass + Central Cosmic Bridge Layers (rendered UNDERNEATH the Photo & Özel Tasarım)
         Canvas(modifier = Modifier.matchParentSize()) {
             val w = size.width
             val h = size.height
+            val phaseRad = (ambientPhase * 2f * PI).toFloat()
 
-            // (a) Refracted upper-center/right purple cosmic nebula glow diffusing through the frosted glass background
+            // (a) Central Golden-to-Violet Cosmic Nebula Nexus bridging Aiden (left) & Castle Spires (right)
             drawCircle(
                 brush = Brush.radialGradient(
                     colors = listOf(
-                        Color(0xFFA855F7).copy(alpha = 0.36f * glowPulse),
-                        Color(0xFF7E22CE).copy(alpha = 0.19f * glowPulse),
+                        Color(0xFFF59E0B).copy(alpha = 0.24f * glowPulse),
+                        Color(0xFF9333EA).copy(alpha = 0.26f * glowPulse),
                         Color.Transparent
                     ),
-                    center = Offset(w * 0.62f, h * 0.22f),
+                    center = Offset(w * 0.49f, h * 0.56f),
+                    radius = w * 0.24f
+                ),
+                center = Offset(w * 0.49f, h * 0.56f),
+                radius = w * 0.24f
+            )
+
+            // (b) Refracted upper-center/right purple cosmic nebula glow diffusing through the frosted glass background
+            drawCircle(
+                brush = Brush.radialGradient(
+                    colors = listOf(
+                        Color(0xFFA855F7).copy(alpha = 0.40f * glowPulse),
+                        Color(0xFF7E22CE).copy(alpha = 0.22f * glowPulse),
+                        Color.Transparent
+                    ),
+                    center = Offset(w * 0.58f, h * 0.24f),
                     radius = w * 0.34f
                 ),
-                center = Offset(w * 0.62f, h * 0.22f),
+                center = Offset(w * 0.58f, h * 0.24f),
                 radius = w * 0.34f
             )
 
-            // (b) Refracted lower-right purple-orchid nebula bloom behind the Hikayeyi Başlat glass zone
+            // (c) Refracted lower-right purple-orchid nebula bloom behind the Hikayeyi Başlat glass zone
             drawCircle(
                 brush = Brush.radialGradient(
                     colors = listOf(
@@ -2432,30 +2631,108 @@ private fun AidenFeaturedUniverseCard(
                 radius = w * 0.32f
             )
 
-            // (c) Frosted Glass Surface Sheen across the exposed glass background
+            // (d) Architectural Celestial Arc & Energy Thread across the center glass bridge (x = 38%..76%)
+            val arcPath = Path().apply {
+                moveTo(w * 0.36f, h * 0.84f)
+                quadraticTo(w * 0.54f, h * 0.38f, w * 0.78f, h * 0.12f)
+            }
+            drawPath(
+                path = arcPath,
+                brush = Brush.linearGradient(
+                    colors = listOf(
+                        Color.Transparent,
+                        Color(0xFFFBBF24).copy(alpha = 0.32f * glowPulse),
+                        Color(0xFFF5D0FE).copy(alpha = 0.42f * glowPulse),
+                        Color(0xFFC084FC).copy(alpha = 0.26f * glowPulse),
+                        Color.Transparent
+                    ),
+                    start = Offset(w * 0.36f, h * 0.84f),
+                    end = Offset(w * 0.78f, h * 0.12f)
+                ),
+                style = Stroke(width = 1.6.dp.toPx(), cap = StrokeCap.Round)
+            )
+            // Secondary subtle golden-lilac orbit arc
+            val arcPath2 = Path().apply {
+                moveTo(w * 0.38f, h * 0.22f)
+                quadraticTo(w * 0.55f, h * 0.62f, w * 0.72f, h * 0.90f)
+            }
+            drawPath(
+                path = arcPath2,
+                brush = Brush.linearGradient(
+                    colors = listOf(
+                        Color.Transparent,
+                        Color(0xFFD8B4FE).copy(alpha = 0.26f * glowPulse),
+                        Color(0xFFFBBF24).copy(alpha = 0.22f * glowPulse),
+                        Color.Transparent
+                    ),
+                    start = Offset(w * 0.38f, h * 0.22f),
+                    end = Offset(w * 0.72f, h * 0.90f)
+                ),
+                style = Stroke(width = 1.0.dp.toPx(), cap = StrokeCap.Round)
+            )
+
+            // (e) Drifting Golden & Lavender Starlight Dust across the center frosted bridge (x = 41%..66%)
+            val bridgeSparks = listOf(
+                Triple(0.45f, 0.24f, 0),
+                Triple(0.51f, 0.44f, 1),
+                Triple(0.47f, 0.68f, 0),
+                Triple(0.56f, 0.32f, 1),
+                Triple(0.61f, 0.58f, 0),
+                Triple(0.43f, 0.82f, 1),
+                Triple(0.54f, 0.78f, 0)
+            )
+            bridgeSparks.forEachIndexed { idx, (bx, by, cType) ->
+                val pulse = 0.45f + 0.55f * ((sin(phaseRad + idx * 1.15f) + 1f) * 0.5f)
+                val sx = w * bx + sin((phaseRad + idx).toDouble()).toFloat() * 4.dp.toPx()
+                val sy = h * by + cos((phaseRad + idx * 0.8f).toDouble()).toFloat() * 3.dp.toPx()
+                val spCol = if (cType == 0) Color(0xFFFDE68A) else Color(0xFFF5D0FE)
+                val sr = if (idx % 2 == 0) 3.4.dp.toPx() else 2.6.dp.toPx()
+                drawCircle(
+                    brush = Brush.radialGradient(
+                        listOf(spCol.copy(alpha = 0.48f * pulse), Color.Transparent),
+                        center = Offset(sx, sy),
+                        radius = sr * 2.8f
+                    ),
+                    center = Offset(sx, sy),
+                    radius = sr * 2.8f
+                )
+                val starP = Path().apply {
+                    moveTo(sx, sy - sr)
+                    lineTo(sx + sr * 0.24f, sy - sr * 0.24f)
+                    lineTo(sx + sr, sy)
+                    lineTo(sx + sr * 0.24f, sy + sr * 0.24f)
+                    lineTo(sx, sy + sr)
+                    lineTo(sx - sr * 0.24f, sy + sr * 0.24f)
+                    lineTo(sx - sr, sy)
+                    lineTo(sx - sr * 0.24f, sy - sr * 0.24f)
+                    close()
+                }
+                drawPath(starP, color = Color.White.copy(alpha = 0.82f * pulse))
+            }
+
+            // (f) Frosted Glass Surface Sheen + Subtle Angled Prism Bands across the exposed glass background
             drawRect(
                 brush = Brush.linearGradient(
                     colors = listOf(
                         Color.Transparent,
-                        Color(0xFFE9D5FF).copy(alpha = 0.13f),
-                        Color(0xFFC084FC).copy(alpha = 0.09f),
-                        Color(0xFFF5D0FE).copy(alpha = 0.14f),
+                        Color(0xFFE9D5FF).copy(alpha = 0.14f),
+                        Color(0xFFC084FC).copy(alpha = 0.10f),
+                        Color(0xFFF5D0FE).copy(alpha = 0.15f),
                         Color.Transparent
                     ),
-                    start = Offset(w * 0.38f, 0f),
+                    start = Offset(w * 0.36f, 0f),
                     end = Offset(w * 0.92f, h)
                 )
             )
 
-            // (d) Crisp angled frosted-glass specular reflection band gliding across the glass background
-            val sheenOffset = w * (0.42f + 0.08f * sin((ambientPhase * 2f * PI).toFloat()))
+            val sheenOffset = w * (0.40f + 0.10f * sin((ambientPhase * 2f * PI).toFloat()))
             drawRect(
                 brush = Brush.linearGradient(
                     colors = listOf(
                         Color.Transparent,
-                        Color(0xFFF5D0FE).copy(alpha = 0.12f * glowPulse),
-                        Color.White.copy(alpha = 0.16f * glowPulse),
-                        Color(0xFFD8B4FE).copy(alpha = 0.10f * glowPulse),
+                        Color(0xFFF5D0FE).copy(alpha = 0.14f * glowPulse),
+                        Color.White.copy(alpha = 0.18f * glowPulse),
+                        Color(0xFFD8B4FE).copy(alpha = 0.11f * glowPulse),
                         Color.Transparent
                     ),
                     start = Offset(sheenOffset, 0f),
@@ -2463,21 +2740,20 @@ private fun AidenFeaturedUniverseCard(
                 )
             )
 
-            // (e) Top & Bottom Frosted Glass Bevel Edge Refraction
+            // (g) Top & Bottom Frosted Glass Bevel Edge Refraction
             drawRect(
                 brush = Brush.verticalGradient(
-                    0.00f to Color(0xFFF5D0FE).copy(alpha = 0.24f),
+                    0.00f to Color(0xFFF5D0FE).copy(alpha = 0.26f),
                     0.18f to Color.Transparent,
                     0.82f to Color.Transparent,
-                    1.00f to Color(0xFFD8B4FE).copy(alpha = 0.20f)
+                    1.00f to Color(0xFFD8B4FE).copy(alpha = 0.22f)
                 )
             )
         }
 
-        // 2. Non-Glass Photo (Left) & Non-Glass "Özel Tasarım" Gothic Castle Spires/Clouds (Right)
-        //    stretching to full card height (`matchParentSize`)
+        // 2. Refined v16 Photo (Left) & Full-Height Gothic Castle Spires/Clouds (Right)
         Image(
-            painter = painterResource(id = R.drawable.img_aiden_modal_featured_clean_v14),
+            painter = painterResource(id = R.drawable.img_aiden_modal_featured_clean_v16),
             contentDescription = "Aiden Blackwood",
             contentScale = ContentScale.FillBounds,
             modifier = Modifier.matchParentSize()
